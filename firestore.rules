@@ -1,0 +1,1949 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // AUTENTICACIÓN Y USUARIO ACTUAL
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function currentUid() {
+      return request.auth != null ? request.auth.uid : null;
+    }
+
+    function currentUserPath() {
+      return /databases/$(database)/documents/users/$(currentUid());
+    }
+
+    function hasCurrentUserDoc() {
+      return isAuthenticated() && exists(currentUserPath());
+    }
+
+    function currentUserData() {
+      return get(currentUserPath()).data;
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/superAdmins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/superAdmins/$(request.auth.uid)).data.isActive == true;
+    }
+
+    // =========================================================================
+    // VALIDACIONES BASE
+    // =========================================================================
+
+    function isNonEmptyString(value) {
+      return value is string && value.size() > 0;
+    }
+
+    function isValidRole(role) {
+      return role is string && role in ['admin', 'administrador', 'supervisor', 'user', 'usuario'];
+    }
+
+    function hasOnlyKeys(data, allowed) {
+      return data.keys().hasOnly(allowed);
+    }
+
+    function hasAllKeys(data, required) {
+      return data.keys().hasAll(required);
+    }
+
+    function sameKeysOnUpdate(allowedChangedKeys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedChangedKeys);
+    }
+
+    function preservesCreatedAt() {
+      return !('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    // =========================================================================
+    // ESTADO DEL USUARIO ACTUAL
+    // =========================================================================
+
+    function currentUserHasRequiredShape() {
+      return hasCurrentUserDoc()
+        && isNonEmptyString(currentUserData().email)
+        && isValidRole(currentUserData().role)
+        && isNonEmptyString(currentUserData().congregationId)
+        && currentUserData().isActive is bool;
+    }
+
+    function isActive() {
+      return currentUserHasRequiredShape()
+        && currentUserData().isActive == true;
+    }
+
+    function isAdmin() {
+      return isActive()
+        && (currentUserData().role == 'admin' || currentUserData().role == 'administrador');
+    }
+
+    function isSupervisor() {
+      return isActive() && currentUserData().role == 'supervisor';
+    }
+
+    function isAdminOrSupervisor() {
+      return isAdmin() || isSupervisor();
+    }
+
+    function isElder() {
+      return isActive()
+        && (
+          currentUserData().isElder == true
+          || (
+            currentUserData().privileges is map
+            && currentUserData().privileges.isElder == true
+          )
+        );
+    }
+
+    function isCleaningManager() {
+      return isAdmin()
+        || hasPermission('limpieza', 'manage')
+        || (
+          hasPermission('limpieza', 'create')
+          && hasPermission('limpieza', 'edit')
+        )
+        || (
+          isActive()
+          && (
+            (
+              currentUserData().servicePosition == 'encargado'
+              && (
+                !('serviceDepartment' in currentUserData())
+                || currentUserData().serviceDepartment == 'limpieza'
+              )
+            )
+            || (
+              currentUserData().serviceAssignments is list
+              && currentUserData().serviceAssignments.hasAny([
+                { 'position': 'encargado', 'department': 'limpieza', 'label': 'Encargado de Limpieza' }
+              ])
+            )
+          )
+        );
+    }
+
+    function isPreachingManager() {
+      return isActive()
+        && (
+          (
+            currentUserData().serviceDepartment == 'predicacion'
+            && (
+              (
+                currentUserData().servicePosition == 'encargado'
+                && currentUserData().privileges is map
+                && currentUserData().privileges.isElder == true
+              )
+              || currentUserData().servicePosition == 'auxiliar'
+            )
+          )
+          || (
+            currentUserData().serviceAssignments is list
+            && (
+              (
+                currentUserData().privileges is map
+                && currentUserData().privileges.isElder == true
+                && currentUserData().serviceAssignments.hasAny([
+                  { 'position': 'encargado', 'department': 'predicacion', 'label': 'Encargado de Predicacion' }
+                ])
+              )
+              || currentUserData().serviceAssignments.hasAny([
+                { 'position': 'auxiliar', 'department': 'predicacion', 'label': 'Auxiliar de Predicacion' }
+              ])
+            )
+          )
+        );
+    }
+
+    function isOutgoingTalksManager() {
+      return isAdmin()
+        || (
+          isActive()
+          && (
+            (
+              currentUserData().servicePosition == 'encargado'
+              && currentUserData().serviceDepartment == 'discursos'
+            )
+            || (
+              currentUserData().serviceAssignments is list
+              && currentUserData().serviceAssignments.hasAny([
+                { 'position': 'encargado', 'department': 'discursos', 'label': 'Encargado de Discursos' }
+              ])
+            )
+          )
+        );
+    }
+
+    function isMeetingsManager() {
+      return isAdminOrSupervisor()
+        || hasPermission('reuniones', 'manage')
+        || (
+          hasPermission('reuniones', 'create')
+          && hasPermission('reuniones', 'edit')
+        )
+        || (
+          isActive()
+          && (
+            (
+              currentUserData().servicePosition == 'encargado'
+              && currentUserData().serviceDepartment == 'reuniones'
+            )
+            || (
+              currentUserData().serviceAssignments is list
+              && currentUserData().serviceAssignments.hasAny([
+                { 'position': 'encargado', 'department': 'reuniones', 'label': 'Encargado de Reuniones' }
+              ])
+            )
+          )
+        );
+    }
+
+    function isPioneer() {
+      return isActive()
+        && currentUserData().privileges is map
+        && (
+          currentUserData().privileges.isRegularPioneer == true
+          || currentUserData().privileges.isAuxiliaryPioneer == true
+        );
+    }
+
+    function hasPermission(department, action) {
+      return isActive()
+        && currentUserData().permissions is map
+        && currentUserData().permissions[department] is map
+        && currentUserData().permissions[department][action] == true;
+    }
+
+    function hasTerritoryPermission(action) {
+      return isActive()
+        && currentUserData().permissions is map
+        && currentUserData().permissions.predicacion is map
+        && currentUserData().permissions.predicacion.territories is map
+        && currentUserData().permissions.predicacion.territories[action] == true;
+    }
+
+    function hasPreachingAssignment(position) {
+      return isActive()
+        && (
+          (
+            currentUserData().servicePosition == position
+            && currentUserData().serviceDepartment == 'predicacion'
+          )
+          || (
+            currentUserData().serviceAssignments is list
+            && (
+              currentUserData().serviceAssignments.hasAny([
+                { 'position': position, 'department': 'predicacion', 'label': 'Encargado de Predicacion' }
+              ])
+              || currentUserData().serviceAssignments.hasAny([
+                { 'position': position, 'department': 'predicacion', 'label': 'Auxiliar de Predicacion' }
+              ])
+            )
+          )
+        );
+    }
+
+    function canCreateTerritories() {
+      return isAdmin() || hasPreachingAssignment('encargado') || hasTerritoryPermission('create');
+    }
+
+    function canEditTerritories() {
+      return isAdmin() || hasPreachingAssignment('encargado') || hasTerritoryPermission('edit');
+    }
+
+    function canDeactivateTerritories() {
+      return isAdmin() || hasPreachingAssignment('encargado') || hasTerritoryPermission('delete');
+    }
+
+    function canAssignTerritories() {
+      return isAdmin() || hasPreachingAssignment('encargado') || hasTerritoryPermission('assign');
+    }
+
+    function canReadUsers() {
+      return isAdmin() || hasPermission('usuarios', 'view') || hasPermission('usuarios', 'manage');
+    }
+
+    function canCreateUsers() {
+      return isAdmin() || hasPermission('usuarios', 'create') || hasPermission('usuarios', 'manage');
+    }
+
+    function canEditUsers() {
+      return isAdmin() || hasPermission('usuarios', 'edit') || hasPermission('usuarios', 'manage');
+    }
+
+    function canDeleteUsers() {
+      return isAdmin() || hasPermission('usuarios', 'delete') || hasPermission('usuarios', 'manage');
+    }
+
+    function safeDelegatedUserCreate() {
+      return isAdmin()
+        || (
+          request.resource.data.role == 'user'
+          && !('permissions' in request.resource.data)
+          && !('privileges' in request.resource.data)
+          && !('responsibilities' in request.resource.data)
+          && !('serviceAssignments' in request.resource.data)
+          && !('servicePosition' in request.resource.data)
+          && !('serviceDepartment' in request.resource.data)
+        );
+    }
+
+    function safeDelegatedUserUpdate() {
+      return isAdmin()
+        || (
+          request.resource.data.role == resource.data.role
+          && request.resource.data.congregationId == resource.data.congregationId
+          && (
+            !('permissions' in request.resource.data) && !('permissions' in resource.data)
+            || request.resource.data.permissions == resource.data.permissions
+          )
+          && (
+            !('privileges' in request.resource.data) && !('privileges' in resource.data)
+            || request.resource.data.privileges == resource.data.privileges
+          )
+          && (
+            !('responsibilities' in request.resource.data) && !('responsibilities' in resource.data)
+            || request.resource.data.responsibilities == resource.data.responsibilities
+          )
+          && (
+            !('serviceAssignments' in request.resource.data) && !('serviceAssignments' in resource.data)
+            || request.resource.data.serviceAssignments == resource.data.serviceAssignments
+          )
+          && (
+            !('servicePosition' in request.resource.data) && !('servicePosition' in resource.data)
+            || request.resource.data.servicePosition == resource.data.servicePosition
+          )
+          && (
+            !('serviceDepartment' in request.resource.data) && !('serviceDepartment' in resource.data)
+            || request.resource.data.serviceDepartment == resource.data.serviceDepartment
+          )
+        );
+    }
+
+    function canListCongregationUsers() {
+      return canAccessCongregationData(myCongregationId())
+        && canReadUsers();
+    }
+
+    function isSameUser(userId) {
+      return isAuthenticated() && currentUid() == userId;
+    }
+
+    function myCongregationId() {
+      return hasCurrentUserDoc() ? currentUserData().congregationId : null;
+    }
+
+    function sameCongregation(congregationId) {
+      return isActive()
+        && isNonEmptyString(congregationId)
+        && myCongregationId() == congregationId;
+    }
+
+    function congregationPath(congregationId) {
+      return /databases/$(database)/documents/congregations/$(congregationId);
+    }
+
+    function congregationAccessBlocked(congregationId) {
+      return exists(congregationPath(congregationId))
+        && !accessBlockExpired(get(congregationPath(congregationId)).data)
+        && (
+          get(congregationPath(congregationId)).data.disabled == true
+          || get(congregationPath(congregationId)).data.deactivated == true
+          || get(congregationPath(congregationId)).data.accessDisabled == true
+          || get(congregationPath(congregationId)).data.isActive == false
+          || get(congregationPath(congregationId)).data.active == false
+          || get(congregationPath(congregationId)).data.enabled == false
+          || get(congregationPath(congregationId)).data.status in [
+            'inactive',
+            'inactivo',
+            'disabled',
+            'desactivada',
+            'suspended',
+            'suspendida',
+            'maintenance',
+            'mantenimiento'
+          ]
+        );
+    }
+
+    function systemMaintenanceBlocked() {
+      return systemMaintenanceDocBlocked(/databases/$(database)/documents/system/maintenance)
+        || systemMaintenanceDocBlocked(/databases/$(database)/documents/system/congregationAccess)
+        || systemMaintenanceDocBlocked(/databases/$(database)/documents/system/platform);
+    }
+
+    function systemMaintenanceDocBlocked(systemDocPath) {
+      return exists(systemDocPath)
+        && !accessBlockExpired(get(systemDocPath).data)
+        && (
+          get(systemDocPath).data.maintenanceMode == true
+          || get(systemDocPath).data.systemMaintenance == true
+          || get(systemDocPath).data.disableCongregations == true
+          || get(systemDocPath).data.allCongregationsDisabled == true
+          || get(systemDocPath).data.congregationsDisabled == true
+          || get(systemDocPath).data.enabled == false
+          || get(systemDocPath).data.isActive == false
+        );
+    }
+
+    function accessBlockExpired(data) {
+      return explicitAccessBlockExpired(data)
+        || maxAccessBlockExpired(data);
+    }
+
+    function explicitAccessBlockExpired(data) {
+      return (
+        ('blockedUntil' in data)
+        && data.blockedUntil is timestamp
+        && data.blockedUntil <= request.time
+      ) || (
+        ('disabledUntil' in data)
+        && data.disabledUntil is timestamp
+        && data.disabledUntil <= request.time
+      ) || (
+        ('deactivatedUntil' in data)
+        && data.deactivatedUntil is timestamp
+        && data.deactivatedUntil <= request.time
+      ) || (
+        ('maintenanceUntil' in data)
+        && data.maintenanceUntil is timestamp
+        && data.maintenanceUntil <= request.time
+      ) || (
+        ('maintenanceEndsAt' in data)
+        && data.maintenanceEndsAt is timestamp
+        && data.maintenanceEndsAt <= request.time
+      ) || (
+        ('unlockAt' in data)
+        && data.unlockAt is timestamp
+        && data.unlockAt <= request.time
+      ) || (
+        ('reactivateAt' in data)
+        && data.reactivateAt is timestamp
+        && data.reactivateAt <= request.time
+      ) || (
+        ('reactivationAt' in data)
+        && data.reactivationAt is timestamp
+        && data.reactivationAt <= request.time
+      ) || (
+        ('expiresAt' in data)
+        && data.expiresAt is timestamp
+        && data.expiresAt <= request.time
+      ) || (
+        ('endsAt' in data)
+        && data.endsAt is timestamp
+        && data.endsAt <= request.time
+      );
+    }
+
+    function maxAccessBlockExpired(data) {
+      return accessStartExpired(data, 'deactivatedAt')
+        || accessStartExpired(data, 'disabledAt')
+        || accessStartExpired(data, 'blockedAt')
+        || accessStartExpired(data, 'maintenanceStartedAt')
+        || accessStartExpired(data, 'startedAt')
+        || accessStartExpired(data, 'updatedAt')
+        || accessStartExpired(data, 'createdAt');
+    }
+
+    function accessStartExpired(data, field) {
+      return field in data
+        && data[field] is timestamp
+        && data[field] + duration.value(5, 'h') <= request.time;
+    }
+
+    function canAccessCongregationData(congregationId) {
+      return sameCongregation(congregationId)
+        && !congregationAccessBlocked(congregationId)
+        && !systemMaintenanceBlocked();
+    }
+
+    function storedDocInMyCongregation() {
+      return resource.data.congregationId is string
+        && canAccessCongregationData(resource.data.congregationId);
+    }
+
+    function targetDocInMyCongregation() {
+      return request.resource.data.congregationId is string
+        && canAccessCongregationData(request.resource.data.congregationId);
+    }
+
+    // =========================================================================
+    // USERS
+    // =========================================================================
+
+    function allowedUserKeys() {
+      return [
+        'uid',
+        'email',
+        'firstName',
+        'middleName',
+        'lastName',
+        'secondLastName',
+        'displayName',
+        'phone',
+        'gender',
+        'photoURL',
+        'role',
+        'isActive',
+        // 'status' es gestionado exclusivamente por Cloud Functions (createUserByAdmin / updateUserByAdmin).
+        // Se incluye aquí para que validUserData no rechace documentos que ya lo contienen
+        // cuando el cliente realiza actualizaciones parciales.
+        'status',
+        'congregationId',
+        'congregationDomain',
+        // Campos de asignación de servicio — escritura por Cloud Functions.
+        'servicePosition',
+        'serviceDepartment',
+        'serviceAssignments',
+        'department',
+        'privileges',
+        'responsibilities',
+        'permissions',
+        'isElder',
+        'isMinisterialServant',
+        'createdAt',
+        'updatedAt',
+        // Campos de notificaciones push — escritura controlada por validPushTokenUpdate()
+        'notificationTokens',
+        'pushTokenUpdatedAt',
+        // Campos de preferencias de notificación
+        'notificationsEnabled',
+        'platformNotifications',
+        'cleaningNotifications',
+        'hospitalityNotifications',
+        // Campos de módulo de limpieza
+        'cleaningEligible',
+        'cleaningGroupId',
+        'cleaningGroupName',
+        'createdBy',
+        'createdByName',
+        'createdByEmail',
+        'updatedBy',
+        'updatedByName',
+        'updatedByEmail'
+      ];
+    }
+
+    function requiredUserKeys() {
+      return [
+        'email',
+        'firstName',
+        'lastName',
+        'role',
+        'isActive',
+        'congregationId'
+      ];
+    }
+
+    function validUserData(data, userId) {
+      return hasOnlyKeys(data, allowedUserKeys())
+        && hasAllKeys(data, requiredUserKeys())
+        && isNonEmptyString(data.email)
+        && isNonEmptyString(data.firstName)
+        && isNonEmptyString(data.lastName)
+        && isValidRole(data.role)
+        && data.isActive is bool
+        && isNonEmptyString(data.congregationId)
+        && (
+          !('uid' in data)
+          || (data.uid is string && data.uid == userId)
+        )
+        && (
+          !('displayName' in data)
+          || data.displayName is string
+        )
+        && (
+          !('phone' in data)
+          || data.phone is string
+        )
+        && (
+          !('gender' in data)
+          || data.gender in ['masculino', 'femenino']
+        )
+        && (
+          !('photoURL' in data)
+          || data.photoURL is string
+        )
+        && (
+          !('notificationTokens' in data)
+          || data.notificationTokens is list
+        )
+        && (
+          !('pushTokenUpdatedAt' in data)
+          || data.pushTokenUpdatedAt is timestamp
+        )
+        && (
+          !('cleaningEligible' in data)
+          || data.cleaningEligible is bool
+        )
+        && (
+          !('cleaningGroupId' in data)
+          || data.cleaningGroupId == null
+          || data.cleaningGroupId is string
+        )
+        && (
+          !('cleaningGroupName' in data)
+          || data.cleaningGroupName == null
+          || data.cleaningGroupName is string
+        )
+        && (
+          !('privileges' in data)
+          || validUserPrivileges(data.privileges)
+        )
+        && (
+          !('responsibilities' in data)
+          || validUserResponsibilities(data.responsibilities)
+        )
+        && (
+          !('permissions' in data)
+          || validUserPermissions(data.permissions)
+        )
+        && (
+          !('serviceAssignments' in data)
+          || validUserServiceAssignments(data.serviceAssignments)
+        )
+        && (
+          !('isElder' in data)
+          || data.isElder is bool
+        )
+        && (
+          !('isMinisterialServant' in data)
+          || data.isMinisterialServant is bool
+        )
+        && (
+          !('createdBy' in data)
+          || data.createdBy is string
+        )
+        && (
+          !('createdByName' in data)
+          || data.createdByName is string
+        )
+        && (
+          !('createdByEmail' in data)
+          || data.createdByEmail is string
+        )
+        && (
+          !('updatedBy' in data)
+          || data.updatedBy is string
+        )
+        && (
+          !('updatedByName' in data)
+          || data.updatedByName is string
+        )
+        && (
+          !('updatedByEmail' in data)
+          || data.updatedByEmail is string
+        );
+    }
+
+    function isSystemPrincipalUserData(data) {
+      return (
+          ('protectedFromDeletion' in data && data.protectedFromDeletion == true)
+          || ('isSystemUser' in data && data.isSystemUser == true)
+          || ('isPrimaryAdmin' in data && data.isPrimaryAdmin == true)
+          || ('isRootAdmin' in data && data.isRootAdmin == true)
+          || ('systemProtected' in data && data.systemProtected == true)
+        )
+        || (
+          ('createdBy' in data)
+          && data.createdBy in [
+            'system',
+            'sistema',
+            'System',
+            'Sistema',
+            'Sistema Sistema',
+            'tu_correo@gmail.com'
+          ]
+        )
+        || (
+          ('createdByName' in data)
+          && data.createdByName in [
+            'system',
+            'sistema',
+            'System',
+            'Sistema',
+            'Sistema Sistema',
+            'tu_correo@gmail.com'
+          ]
+        )
+        || (
+          ('createdByEmail' in data)
+          && data.createdByEmail in [
+            'system',
+            'sistema',
+            'System',
+            'Sistema',
+            'Sistema Sistema',
+            'tu_correo@gmail.com'
+          ]
+        );
+    }
+
+    function validUserServiceAssignments(assignments) {
+      return assignments is list
+        && assignments.size() <= 20;
+    }
+
+    function validUserPrivileges(privileges) {
+      return privileges is map
+        && privileges.keys().hasOnly([
+          'isElder',
+          'isMinisterialServant',
+          'isRegularPioneer',
+          'isAuxiliaryPioneer'
+        ])
+        && (!('isElder' in privileges) || privileges.isElder is bool)
+        && (!('isMinisterialServant' in privileges) || privileges.isMinisterialServant is bool)
+        && (!('isRegularPioneer' in privileges) || privileges.isRegularPioneer is bool)
+        && (!('isAuxiliaryPioneer' in privileges) || privileges.isAuxiliaryPioneer is bool)
+        && !(privileges.isElder == true && privileges.isMinisterialServant == true)
+        && !(privileges.isRegularPioneer == true && privileges.isAuxiliaryPioneer == true);
+    }
+
+    function validUserResponsibilities(responsibilities) {
+      return responsibilities is map
+        && responsibilities.keys().hasOnly(['isPreachingManager'])
+        && (!('isPreachingManager' in responsibilities) || responsibilities.isPreachingManager is bool);
+    }
+
+    function validPermissionActions(actions) {
+      return actions is map
+        && actions.keys().hasOnly(['view', 'create', 'edit', 'delete', 'manage', 'approve', 'export', 'territories'])
+        && (!('view' in actions) || actions.view is bool)
+        && (!('create' in actions) || actions.create is bool)
+        && (!('edit' in actions) || actions.edit is bool)
+        && (!('delete' in actions) || actions.delete is bool)
+        && (!('manage' in actions) || actions.manage is bool)
+        && (!('approve' in actions) || actions.approve is bool)
+        && (!('export' in actions) || actions.export is bool)
+        && (!('territories' in actions) || validTerritoryPermissions(actions.territories));
+    }
+
+    function validTerritoryPermissions(territories) {
+      return territories is map
+        && territories.keys().hasOnly(['view', 'create', 'edit', 'delete', 'assign'])
+        && (!('view' in territories) || territories.view is bool)
+        && (!('create' in territories) || territories.create is bool)
+        && (!('edit' in territories) || territories.edit is bool)
+        && (!('delete' in territories) || territories.delete is bool)
+        && (!('assign' in territories) || territories.assign is bool);
+    }
+
+    function validUserPermissions(permissions) {
+      return permissions is map
+        && permissions.keys().hasOnly([
+          'usuarios',
+          'reuniones',
+          'limpieza',
+          'predicacion',
+          'tesoreria',
+          'pagos',
+          'configuracion',
+          'avisos',
+          'asignaciones'
+        ])
+        && (!('usuarios' in permissions) || validPermissionActions(permissions.usuarios))
+        && (!('reuniones' in permissions) || validPermissionActions(permissions.reuniones))
+        && (!('limpieza' in permissions) || validPermissionActions(permissions.limpieza))
+        && (!('predicacion' in permissions) || validPermissionActions(permissions.predicacion))
+        && (!('tesoreria' in permissions) || validPermissionActions(permissions.tesoreria))
+        && (!('pagos' in permissions) || validPermissionActions(permissions.pagos))
+        && (!('configuracion' in permissions) || validPermissionActions(permissions.configuracion))
+        && (!('avisos' in permissions) || validPermissionActions(permissions.avisos))
+        && (!('asignaciones' in permissions) || validPermissionActions(permissions.asignaciones));
+    }
+
+    function validUserCreate(userId) {
+      return validUserData(request.resource.data, userId);
+    }
+
+    function validUserUpdateByAdmin(userId) {
+      return validUserData(request.resource.data, userId)
+        && preservesCreatedAt();
+    }
+
+    function validSelfUserUpdate(userId) {
+      return isSameUser(userId)
+        && validUserData(request.resource.data, userId)
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.isActive == resource.data.isActive
+        && request.resource.data.congregationId == resource.data.congregationId
+        && preservesCreatedAt()
+        && sameKeysOnUpdate([
+          'firstName',
+          'lastName',
+          'displayName',
+          'phone',
+          'photoURL',
+          'updatedAt'
+        ]);
+    }
+
+    // Permite al propio usuario actualizar SOLO su token de notificación push.
+    // El cliente llama setDoc(..., { uid, notificationTokens: arrayUnion(token),
+    //   pushTokenUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true }).
+    // Esta condición es independiente de validSelfUserUpdate para no interferir
+    // con las validaciones de perfil.
+    function validPushTokenUpdate(userId) {
+      return isSameUser(userId)
+        && isActive()
+        && sameKeysOnUpdate(['notificationTokens', 'pushTokenUpdatedAt', 'updatedAt', 'uid']);
+    }
+
+    function isValidEventType(type) {
+      return type in [
+        'conmemoracion',
+        'asamblea_circuito',
+        'asamblea_regional',
+        'visita_superintendente',
+        'reunion_especial',
+        'capacitacion',
+        'reunion_anual_precursores',
+        'reunion_precursores_visita_superintendente',
+        'reunion_ancianos_siervos_ministeriales'
+      ];
+    }
+
+    function validEventData(data) {
+      return hasOnlyKeys(data, [
+          'congregationId',
+          'type',
+          'title',
+          'superintendentName',
+          'superintendentWifeName',
+          'startDate',
+          'endDate',
+          'deleteAt',
+          'location',
+          'color',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.congregationId == myCongregationId()
+        && isValidEventType(data.type)
+        && data.startDate is timestamp
+        && data.endDate is timestamp
+        && data.deleteAt is timestamp
+        && data.color is string
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (
+          !('updatedBy' in data)
+          || data.updatedBy is string
+        )
+        && (
+          !('location' in data)
+          || data.location is string
+        )
+        && (
+          !('superintendentWifeName' in data)
+          || data.superintendentWifeName is string
+        )
+        && (
+          data.type == 'visita_superintendente'
+          ? (
+            isNonEmptyString(data.superintendentName)
+            && !('title' in data)
+          )
+          : (
+            isNonEmptyString(data.title)
+            && !('superintendentName' in data)
+            && !('superintendentWifeName' in data)
+          )
+        );
+    }
+
+    function validEventCreate() {
+      return isAdminOrSupervisor()
+        && validEventData(request.resource.data)
+        && request.resource.data.createdBy == currentUid();
+    }
+
+    function validEventUpdate() {
+      return isAdminOrSupervisor()
+        && resource.data.congregationId == myCongregationId()
+        && validEventData(request.resource.data)
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function validExpoPushTokenDoc(userId) {
+      return isSameUser(userId)
+        && isActive()
+        && hasOnlyKeys(request.resource.data, [
+          'token',
+          'userId',
+          'congregationId',
+          'platform',
+          'deviceName',
+          'isActive',
+          'updatedAt'
+        ])
+        && isNonEmptyString(request.resource.data.token)
+        && request.resource.data.userId == userId
+        && request.resource.data.congregationId == currentUserData().congregationId
+        && request.resource.data.platform in ['ios', 'android']
+        && (
+          request.resource.data.deviceName == null
+          || request.resource.data.deviceName is string
+        )
+        && request.resource.data.isActive is bool
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validViewedAnnouncementData(announcementId) {
+      return hasOnlyKeys(request.resource.data, [
+          'announcementId',
+          'viewedAt'
+        ])
+        && request.resource.data.announcementId == announcementId
+        && request.resource.data.viewedAt is timestamp;
+    }
+
+    function validCleaningMembershipUserUpdate() {
+      return isCleaningManager()
+        && storedDocInMyCongregation()
+        && targetDocInMyCongregation()
+        && preservesCreatedAt()
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.isActive == resource.data.isActive
+        && request.resource.data.congregationId == resource.data.congregationId
+        && (
+          !('cleaningGroupId' in request.resource.data)
+          || request.resource.data.cleaningGroupId == null
+          || request.resource.data.cleaningGroupId is string
+        )
+        && (
+          !('cleaningGroupName' in request.resource.data)
+          || request.resource.data.cleaningGroupName == null
+          || request.resource.data.cleaningGroupName is string
+        )
+        && sameKeysOnUpdate([
+          'cleaningGroupId',
+          'cleaningGroupName',
+          'updatedAt'
+        ]);
+    }
+
+    // =========================================================================
+    // CONGREGATIONS
+    // =========================================================================
+
+    function allowedCongregationKeys() {
+      return [
+        'name',
+        'code',
+        'country',
+        'state',
+        'city',
+        'language',
+        'timezone',
+        'isActive',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validCongregationData(data) {
+      return hasOnlyKeys(data, allowedCongregationKeys())
+        && hasAllKeys(data, ['name', 'isActive'])
+        && isNonEmptyString(data.name)
+        && data.isActive is bool
+        && (!('code' in data) || data.code is string)
+        && (!('country' in data) || data.country is string)
+        && (!('state' in data) || data.state is string)
+        && (!('city' in data) || data.city is string)
+        && (!('language' in data) || data.language is string)
+        && (!('timezone' in data) || data.timezone is string);
+    }
+
+    // =========================================================================
+    // PERSONS
+    // =========================================================================
+
+    function allowedPersonKeys() {
+      return [
+        'congregationId',
+        'firstName',
+        'lastName',
+        'displayName',
+        'gender',
+        'phone',
+        'email',
+        'isBaptized',
+        'isPublisher',
+        'isActive',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validPersonData(data, congregationId) {
+      return hasOnlyKeys(data, allowedPersonKeys())
+        && hasAllKeys(data, ['congregationId', 'firstName', 'lastName', 'isActive'])
+        && data.congregationId == congregationId
+        && isNonEmptyString(data.firstName)
+        && isNonEmptyString(data.lastName)
+        && data.isActive is bool
+        && (!('displayName' in data) || data.displayName is string)
+        && (!('gender' in data) || data.gender is string)
+        && (!('phone' in data) || data.phone is string)
+        && (!('email' in data) || data.email is string)
+        && (!('isBaptized' in data) || data.isBaptized is bool)
+        && (!('isPublisher' in data) || data.isPublisher is bool)
+        && (!('notes' in data) || data.notes is string);
+    }
+
+    // =========================================================================
+    // MEETINGS
+    // =========================================================================
+
+    function allowedMeetingKeys() {
+      return [
+        'congregationId',
+        'type',
+        'meetingCategory',
+        'title',
+        'description',
+        'date',
+        'status',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validMeetingType(value) {
+      return value is string
+        && value in ['midweek', 'weekend', 'cleaning', 'hospitality'];
+    }
+
+    function validMeetingData(data, congregationId) {
+      return hasOnlyKeys(data, allowedMeetingKeys())
+        && hasAllKeys(data, ['congregationId', 'type', 'date'])
+        && data.congregationId == congregationId
+        && validMeetingType(data.type)
+        && isNonEmptyString(data.date)
+        && (!('meetingCategory' in data) || data.meetingCategory is string)
+        && (!('title' in data) || data.title is string)
+        && (!('description' in data) || data.description is string)
+        && (!('status' in data) || data.status is string)
+        && (!('notes' in data) || data.notes is string);
+    }
+
+    // =========================================================================
+    // ASSIGNMENTS
+    // =========================================================================
+
+    function allowedAssignmentKeys() {
+      return [
+        'congregationId',
+        'meetingId',
+        'category',
+        'type',
+        'section',
+        'title',
+        'description',
+        'priority',
+        'assignedToUid',
+        'assignedByUid',
+        'assignedByName',
+        'createdBy',
+        'updatedBy',
+        'cleaningGroupId',
+        'cleaningGroupName',
+        'assignedUsers',
+        'date',
+        'dueDate',
+        'assignedToUserId',
+        'assignedToPersonId',
+        'assignedToName',
+        'assistantUserId',
+        'assistantPersonId',
+        'assistantName',
+        'startTime',
+        'endTime',
+        'durationMinutes',
+        'status',
+        'notes',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validAssignmentData(data, congregationId, meetingId) {
+      return hasOnlyKeys(data, allowedAssignmentKeys())
+        && hasAllKeys(data, ['congregationId', 'meetingId', 'type', 'title'])
+        && data.congregationId == congregationId
+        && data.meetingId == meetingId
+        && isNonEmptyString(data.type)
+        && isNonEmptyString(data.title)
+        && (!('category' in data) || data.category is string)
+        && (!('section' in data) || data.section is string)
+        && (!('description' in data) || data.description is string)
+        && (!('priority' in data) || data.priority is string)
+        && (!('assignedToUid' in data) || data.assignedToUid is string)
+        && (!('assignedByUid' in data) || data.assignedByUid is string)
+        && (!('assignedByName' in data) || data.assignedByName is string)
+        && (!('createdBy' in data) || data.createdBy is string)
+        && (!('updatedBy' in data) || data.updatedBy is string)
+        && (!('cleaningGroupId' in data) || data.cleaningGroupId is string)
+        && (!('cleaningGroupName' in data) || data.cleaningGroupName is string)
+        && (!('assignedUsers' in data) || data.assignedUsers is list)
+        && (!('assignedToUserId' in data) || data.assignedToUserId is string)
+        && (!('assignedToPersonId' in data) || data.assignedToPersonId is string)
+        && (!('assignedToName' in data) || data.assignedToName is string)
+        && (!('assistantUserId' in data) || data.assistantUserId is string)
+        && (!('assistantPersonId' in data) || data.assistantPersonId is string)
+        && (!('assistantName' in data) || data.assistantName is string)
+        && (!('startTime' in data) || data.startTime is string)
+        && (!('endTime' in data) || data.endTime is string)
+        && (!('durationMinutes' in data) || data.durationMinutes is int)
+        && (!('status' in data) || data.status is string)
+        && (!('notes' in data) || data.notes is string);
+    }
+
+    function validStandaloneAssignmentData(data, congregationId) {
+      return hasOnlyKeys(data, allowedAssignmentKeys())
+        && hasAllKeys(data, ['congregationId', 'category', 'type', 'title'])
+        && data.congregationId == congregationId
+        && isNonEmptyString(data.category)
+        && isNonEmptyString(data.type)
+        && isNonEmptyString(data.title)
+        && (!('meetingId' in data) || data.meetingId is string)
+        && (!('section' in data) || data.section is string)
+        && (!('description' in data) || data.description is string)
+        && (!('priority' in data) || data.priority is string)
+        && (!('assignedToUid' in data) || data.assignedToUid is string)
+        && (!('assignedByUid' in data) || data.assignedByUid is string)
+        && (!('assignedByName' in data) || data.assignedByName is string)
+        && (!('createdBy' in data) || data.createdBy is string)
+        && (!('updatedBy' in data) || data.updatedBy is string)
+        && (!('cleaningGroupId' in data) || data.cleaningGroupId is string)
+        && (!('cleaningGroupName' in data) || data.cleaningGroupName is string)
+        && (!('assignedUsers' in data) || data.assignedUsers is list)
+        && (!('assignedToUserId' in data) || data.assignedToUserId is string)
+        && (!('assignedToPersonId' in data) || data.assignedToPersonId is string)
+        && (!('assignedToName' in data) || data.assignedToName is string)
+        && (!('assistantUserId' in data) || data.assistantUserId is string)
+        && (!('assistantPersonId' in data) || data.assistantPersonId is string)
+        && (!('assistantName' in data) || data.assistantName is string)
+        && (!('startTime' in data) || data.startTime is string)
+        && (!('endTime' in data) || data.endTime is string)
+        && (!('durationMinutes' in data) || data.durationMinutes is int)
+        && (!('status' in data) || data.status is string)
+        && (!('notes' in data) || data.notes is string);
+    }
+
+    function isValidTerritoryDay(day) {
+      return day in [
+        'monday',
+        'tuesday',
+        'wednesday',
+        'thursday',
+        'friday',
+        'saturday',
+        'sunday'
+      ];
+    }
+
+    function validTerritoryData(data, congregationId) {
+      return hasOnlyKeys(data, [
+          'congregationId',
+          'number',
+          'name',
+          'description',
+          'status',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasAllKeys(data, [
+          'congregationId',
+          'number',
+          'name',
+          'description',
+          'status',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.congregationId == congregationId
+        && (data.number == null || data.number is number)
+        && isNonEmptyString(data.name)
+        && data.name.size() <= 50
+        && data.description is string
+        && data.description.size() <= 160
+        && data.status in ['active', 'inactive']
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validTerritoryCreate(data, congregationId) {
+      return validTerritoryData(data, congregationId)
+        && data.status == 'active'
+        && data.createdBy == currentUid()
+        && data.updatedBy == currentUid();
+    }
+
+    function validTerritoryUpdate(data, congregationId) {
+      return validTerritoryData(data, congregationId)
+        && data.congregationId == resource.data.congregationId
+        && data.createdBy == resource.data.createdBy
+        && data.createdAt == resource.data.createdAt
+        && data.updatedBy == currentUid();
+    }
+
+    function validTerritoryScheduleData(data, congregationId, scheduleId) {
+      return hasOnlyKeys(data, [
+          'congregationId',
+          'dayOfWeek',
+          'territoryIds',
+          'note',
+          'isActive',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasAllKeys(data, [
+          'congregationId',
+          'dayOfWeek',
+          'territoryIds',
+          'note',
+          'isActive',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.congregationId == congregationId
+        && data.dayOfWeek == scheduleId
+        && isValidTerritoryDay(data.dayOfWeek)
+        && data.territoryIds is list
+        && data.territoryIds.size() <= 50
+        && data.note is string
+        && data.note.size() <= 300
+        && data.isActive is bool
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validTerritoryScheduleCreate(data, congregationId, scheduleId) {
+      return validTerritoryScheduleData(data, congregationId, scheduleId)
+        && data.createdBy == currentUid()
+        && data.updatedBy == currentUid();
+    }
+
+    function validTerritoryScheduleUpdate(data, congregationId, scheduleId) {
+      return validTerritoryScheduleData(data, congregationId, scheduleId)
+        && data.congregationId == resource.data.congregationId
+        && data.dayOfWeek == resource.data.dayOfWeek
+        && data.createdBy == resource.data.createdBy
+        && data.createdAt == resource.data.createdAt
+        && data.updatedBy == currentUid();
+    }
+
+    // =========================================================================
+    // CLEANING GROUPS
+    // =========================================================================
+
+    function allowedCleaningGroupKeys() {
+      return [
+        'name',
+        'description',
+        'congregationId',
+        'groupType',
+        'memberIds',
+        'memberCount',
+        'isActive',
+        'createdBy',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validCleaningGroupData(data, congregationId) {
+      return hasOnlyKeys(data, allowedCleaningGroupKeys())
+        && hasAllKeys(data, [
+          'name',
+          'congregationId',
+          'groupType',
+          'memberIds',
+          'memberCount',
+          'isActive',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.congregationId == congregationId
+        && isNonEmptyString(data.name)
+        && data.name.size() <= 80
+        && data.groupType in ['standard', 'family']
+        && data.memberIds is list
+        && data.memberIds.size() <= 200
+        && data.memberCount is int
+        && data.memberCount >= 0
+        && data.memberCount <= 200
+        && data.memberCount == data.memberIds.size()
+        && data.isActive is bool
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!('description' in data) || (data.description is string && data.description.size() <= 300));
+    }
+
+    // =========================================================================
+    // NOTIFICATIONS
+    // =========================================================================
+
+    function allowedNotificationKeys() {
+      return [
+        'congregationId',
+        'userId',
+        'title',
+        'body',
+        'type',
+        'isRead',
+        'relatedId',
+        'createdAt',
+        'readAt'
+      ];
+    }
+
+    function validNotificationData(data, congregationId) {
+      return hasOnlyKeys(data, allowedNotificationKeys())
+        && hasAllKeys(data, ['congregationId', 'title', 'body', 'type', 'isRead'])
+        && data.congregationId == congregationId
+        && isNonEmptyString(data.title)
+        && isNonEmptyString(data.body)
+        && isNonEmptyString(data.type)
+        && data.isRead is bool
+        && (!('userId' in data) || data.userId is string)
+        && (!('relatedId' in data) || data.relatedId is string);
+    }
+
+    function validOutgoingTalkStatus(status) {
+      return status is string && status in ['scheduled', 'cancelled', 'completed'];
+    }
+
+    function validDateKey(value) {
+      return value is string
+        && value.matches('^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function validTimeKey(value) {
+      return value is string
+        && value.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
+    function validOutgoingTalkData(data, congregationId) {
+      return hasOnlyKeys(data, [
+          'congregationId',
+          'speakerUserId',
+          'speakerName',
+          'destinationCongregationName',
+          'talkDate',
+          'talkTime',
+          'weekStartDate',
+          'weekEndDate',
+          'status',
+          'notes',
+          'createdBy',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasAllKeys(data, [
+          'congregationId',
+          'speakerUserId',
+          'speakerName',
+          'destinationCongregationName',
+          'talkDate',
+          'talkTime',
+          'weekStartDate',
+          'weekEndDate',
+          'status',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.congregationId == congregationId
+        && isNonEmptyString(data.speakerUserId)
+        && isNonEmptyString(data.speakerName)
+        && isNonEmptyString(data.destinationCongregationName)
+        && validDateKey(data.talkDate)
+        && validTimeKey(data.talkTime)
+        && validDateKey(data.weekStartDate)
+        && validDateKey(data.weekEndDate)
+        && data.weekStartDate <= data.talkDate
+        && data.talkDate <= data.weekEndDate
+        && validOutgoingTalkStatus(data.status)
+        && data.createdBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!('updatedBy' in data) || data.updatedBy is string)
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // =========================================================================
+    // CHANGE LOGS
+    // =========================================================================
+
+    function allowedChangeLogKeys() {
+      return [
+        'congregationId',
+        'actorUserId',
+        'actorName',
+        'action',
+        'entityType',
+        'entityId',
+        'description',
+        'metadata',
+        'createdAt'
+      ];
+    }
+
+    function validChangeLogData(data, congregationId) {
+      return hasOnlyKeys(data, allowedChangeLogKeys())
+        && hasAllKeys(data, ['congregationId', 'actorUserId', 'action', 'entityType', 'entityId', 'createdAt'])
+        && data.congregationId == congregationId
+        && data.actorUserId == currentUid()
+        && isNonEmptyString(data.action)
+        && isNonEmptyString(data.entityType)
+        && isNonEmptyString(data.entityId)
+        && (!('actorName' in data) || data.actorName is string)
+        && (!('description' in data) || data.description is string)
+        && (!('metadata' in data) || data.metadata is map);
+    }
+
+    function validMonthId(monthId) {
+      return monthId is string
+        && monthId.matches('^\\d{4}-(0[1-9]|1[0-2])$');
+    }
+
+    function allowedPreachingReportKeys() {
+      return [
+        'userId',
+        'userName',
+        'congregationId',
+        'congregationName',
+        'monthId',
+        'monthName',
+        'participated',
+        'bibleStudies',
+        'returnVisits',
+        'comments',
+        'isPioneer',
+        'pioneerType',
+        'hours',
+        'submittedAt',
+        'updatedAt',
+        'submittedBy'
+      ];
+    }
+
+    function validPreachingReportWrite(data, congregationId, monthId, userId) {
+      return hasOnlyKeys(data, allowedPreachingReportKeys())
+        && hasAllKeys(data, [
+          'userId',
+          'userName',
+          'congregationId',
+          'monthId',
+          'monthName',
+          'participated',
+          'bibleStudies',
+          'returnVisits',
+          'isPioneer',
+          'submittedAt',
+          'updatedAt',
+          'submittedBy'
+        ])
+        && validMonthId(monthId)
+        && data.userId == userId
+        && data.userId == currentUid()
+        && data.submittedBy == currentUid()
+        && data.congregationId == congregationId
+        && data.monthId == monthId
+        && data.userName is string
+        && data.monthName is string
+        && (!('congregationName' in data) || data.congregationName is string)
+        && data.participated is bool
+        && data.bibleStudies is int
+        && data.bibleStudies >= 0
+        && data.returnVisits is int
+        && data.returnVisits >= 0
+        && (
+          !('comments' in data)
+          || data.comments == null
+          || (data.comments is string && data.comments.size() <= 500)
+        )
+        && data.isPioneer is bool
+        && data.isPioneer == isPioneer()
+        && (
+          !('pioneerType' in data)
+          || data.pioneerType == null
+          || data.pioneerType in ['regular', 'auxiliary']
+        )
+        && data.submittedAt is timestamp
+        && data.updatedAt is timestamp
+        && (
+          isPioneer()
+          || !('hours' in data)
+          || data.hours == null
+        )
+        && (
+          !isPioneer()
+          || data.hours is number
+          || data.hours == null
+        )
+        && (
+          !isPioneer()
+          || data.hours == null
+          || data.hours >= 0
+        );
+    }
+
+    // =========================================================================
+    // REGLAS: SYSTEM
+    // Solo lectura para usuarios autenticados.
+    // Usado por cache-control-service.ts para leer system/cacheControl.
+    // Escritura reservada exclusivamente para Cloud Functions / consola admin.
+    // =========================================================================
+
+    match /system/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // REGLAS: SYSTEM ANNOUNCEMENTS
+    // Avisos globales administrados desde la app administrativa.
+    // =========================================================================
+
+    match /systemAnnouncements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // =========================================================================
+    // REGLAS: SUPER ADMINS
+    // =========================================================================
+
+    match /superAdmins/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // REGLAS: USERS
+    // =========================================================================
+
+    match /events/{eventId} {
+      allow get, list: if isActive()
+        && resource.data.congregationId == myCongregationId()
+        && canAccessCongregationData(resource.data.congregationId);
+      allow create: if validEventCreate();
+      allow update: if validEventUpdate();
+      allow delete: if isAdminOrSupervisor()
+        && resource.data.congregationId == myCongregationId();
+    }
+
+    match /users/{userId} {
+      allow get: if isSuperAdmin() 
+        || isSameUser(userId)
+        || (canReadUsers() && storedDocInMyCongregation());
+
+      // list sólo dentro de la propia congregación.
+      // Firestore Security Rules no permiten inspeccionar filtros de query,
+      // por lo que la restricción real se aplica en la app (siempre filtra por congregationId).
+      // myCongregationId() != null garantiza que el solicitante tiene perfil activo con congregación.
+      allow list: if isSuperAdmin() 
+        || (canListCongregationUsers() && myCongregationId() != null);
+
+      allow create: if isSuperAdmin() || (canCreateUsers()
+        && validUserCreate(userId)
+        && targetDocInMyCongregation()
+        && safeDelegatedUserCreate());
+
+      allow update: if isSuperAdmin() || (
+          canEditUsers()
+          && storedDocInMyCongregation()
+          && targetDocInMyCongregation()
+          && validUserUpdateByAdmin(userId)
+          && safeDelegatedUserUpdate()
+        ) || (
+          validSelfUserUpdate(userId)
+        ) || (
+          // Registro de token push: el propio usuario actualiza SOLO su token.
+          validPushTokenUpdate(userId)
+        ) || (
+          // Gestion de grupos de limpieza: solo campos de membresia de limpieza.
+          validCleaningMembershipUserUpdate()
+        );
+
+      allow delete: if isSuperAdmin() || (
+          canDeleteUsers()
+          && storedDocInMyCongregation()
+          && resource.data.role != 'admin'
+          && resource.data.role != 'administrador'
+          && !isSystemPrincipalUserData(resource.data)
+        );
+
+      match /pushTokens/{tokenDocId} {
+        allow get, list: if isSameUser(userId);
+        allow create, update: if validExpoPushTokenDoc(userId);
+        allow delete: if isSameUser(userId);
+      }
+
+      match /viewedAnnouncements/{announcementId} {
+        allow get, list: if isSameUser(userId);
+        allow create, update: if isSameUser(userId)
+          && validViewedAnnouncementData(announcementId);
+        allow delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // REGLAS: CONGREGATIONS
+    // =========================================================================
+
+    match /congregations/{congregationId} {
+      allow get: if isSuperAdmin() || sameCongregation(congregationId);
+      allow list: if isSuperAdmin();
+
+      allow create: if isSuperAdmin() || (isAdmin()
+        && canAccessCongregationData(congregationId)
+        && validCongregationData(request.resource.data));
+
+      allow update: if isSuperAdmin() || (isAdmin()
+        && canAccessCongregationData(congregationId)
+        && validCongregationData(request.resource.data)
+        && preservesCreatedAt());
+
+      allow delete: if false;
+
+      match /private/{privateDocId} {
+        allow get, list: if sameCongregation(congregationId)
+          && canAccessCongregationData(congregationId)
+          && isAdmin();
+        allow write: if false;
+      }
+
+      // -----------------------------------------------------------------------
+      // PERSONS
+      // -----------------------------------------------------------------------
+      match /persons/{personId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if isAdminOrSupervisor()
+          && canAccessCongregationData(congregationId)
+          && validPersonData(request.resource.data, congregationId);
+
+        allow update: if isAdminOrSupervisor()
+          && canAccessCongregationData(congregationId)
+          && validPersonData(request.resource.data, congregationId)
+          && preservesCreatedAt();
+
+        allow delete: if isAdmin();
+      }
+
+      // -----------------------------------------------------------------------
+      // MEETINGS
+      // -----------------------------------------------------------------------
+      match /meetings/{meetingId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if isMeetingsManager()
+          && canAccessCongregationData(congregationId)
+          && validMeetingData(request.resource.data, congregationId);
+
+        allow update: if isMeetingsManager()
+          && canAccessCongregationData(congregationId)
+          && validMeetingData(request.resource.data, congregationId)
+          && preservesCreatedAt();
+
+        allow delete: if isAdmin();
+
+        // ---------------------------------------------------------------------
+        // ASSIGNMENTS
+        // ---------------------------------------------------------------------
+        match /assignments/{assignmentId} {
+          allow get, list: if canAccessCongregationData(congregationId);
+
+          allow create, update: if false;
+
+          allow delete: if isAdmin();
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // ASSIGNMENTS (congregation scoped: limpieza, hospitalidad u otras tareas)
+      // -----------------------------------------------------------------------
+      match /assignments/{assignmentId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if (isAdminOrSupervisor() || hasPermission('asignaciones', 'create') || hasPermission('asignaciones', 'manage'))
+          && canAccessCongregationData(congregationId)
+          && validStandaloneAssignmentData(request.resource.data, congregationId);
+
+        allow update: if (isAdminOrSupervisor() || hasPermission('asignaciones', 'edit') || hasPermission('asignaciones', 'manage'))
+          && canAccessCongregationData(congregationId)
+          && validStandaloneAssignmentData(request.resource.data, congregationId)
+          && preservesCreatedAt();
+
+        allow delete: if isAdmin();
+      }
+
+      // -----------------------------------------------------------------------
+      // TERRITORIES
+      // -----------------------------------------------------------------------
+      match /territories/{territoryId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if canCreateTerritories()
+          && canAccessCongregationData(congregationId)
+          && validTerritoryCreate(request.resource.data, congregationId);
+
+        allow update: if (
+            (resource.data.status == 'active' && request.resource.data.status == 'inactive' && canDeactivateTerritories())
+            || (
+              request.resource.data.status == resource.data.status
+              && canEditTerritories()
+            )
+          )
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId
+          && validTerritoryUpdate(request.resource.data, congregationId);
+
+        allow delete: if false;
+      }
+
+      match /territorySchedule/{scheduleId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if canAssignTerritories()
+          && canAccessCongregationData(congregationId)
+          && validTerritoryScheduleCreate(request.resource.data, congregationId, scheduleId);
+
+        allow update: if canAssignTerritories()
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId
+          && validTerritoryScheduleUpdate(request.resource.data, congregationId, scheduleId);
+
+        allow delete: if false;
+      }
+
+      // -----------------------------------------------------------------------
+      // OUTGOING TALKS
+      // Escritura directa cerrada: las altas/cambios pasan por Cloud Functions.
+      // -----------------------------------------------------------------------
+      match /outgoingTalks/{outgoingTalkId} {
+        allow get, list: if canAccessCongregationData(congregationId)
+          && isOutgoingTalksManager();
+
+        allow create, update: if false
+          && canAccessCongregationData(congregationId)
+          && isOutgoingTalksManager()
+          && validOutgoingTalkData(request.resource.data, congregationId);
+
+        allow delete: if false;
+      }
+
+      // -----------------------------------------------------------------------
+      // CLEANING GROUPS
+      // -----------------------------------------------------------------------
+      match /cleaningGroups/{groupId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if isCleaningManager()
+          && canAccessCongregationData(congregationId)
+          && validCleaningGroupData(request.resource.data, congregationId);
+
+        allow update: if isCleaningManager()
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId
+          && validCleaningGroupData(request.resource.data, congregationId)
+          && preservesCreatedAt();
+
+        allow delete: if isAdmin()
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId;
+      }
+
+      // Compatibilidad con el nombre legacy usado por versiones anteriores.
+      match /cleaning_groups/{groupId} {
+        allow get, list: if canAccessCongregationData(congregationId);
+
+        allow create: if isCleaningManager()
+          && canAccessCongregationData(congregationId)
+          && validCleaningGroupData(request.resource.data, congregationId);
+
+        allow update: if isCleaningManager()
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId
+          && validCleaningGroupData(request.resource.data, congregationId)
+          && preservesCreatedAt();
+
+        allow delete: if isAdmin()
+          && canAccessCongregationData(congregationId)
+          && resource.data.congregationId == congregationId;
+      }
+
+      // -----------------------------------------------------------------------
+      // NOTIFICATIONS
+      // -----------------------------------------------------------------------
+      match /notifications/{notificationId} {
+        allow get: if canAccessCongregationData(congregationId)
+          && (
+            !('userId' in resource.data)
+            || resource.data.userId == currentUid()
+            || isAdminOrSupervisor()
+          );
+
+        allow list: if canAccessCongregationData(congregationId) && isAdminOrSupervisor();
+
+        allow create: if isAdminOrSupervisor()
+          && canAccessCongregationData(congregationId)
+          && validNotificationData(request.resource.data, congregationId);
+
+        allow update: if (
+            isAdminOrSupervisor()
+            && canAccessCongregationData(congregationId)
+            && validNotificationData(request.resource.data, congregationId)
+          ) || (
+            canAccessCongregationData(congregationId)
+            && resource.data.userId == currentUid()
+            && request.resource.data.congregationId == resource.data.congregationId
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.title == resource.data.title
+            && request.resource.data.body == resource.data.body
+            && request.resource.data.type == resource.data.type
+            && request.resource.data.relatedId == resource.data.relatedId
+            && sameKeysOnUpdate(['isRead', 'readAt'])
+            && request.resource.data.isRead is bool
+            && (!('readAt' in request.resource.data) || request.resource.data.readAt is string)
+          );
+
+        allow delete: if isAdmin();
+      }
+
+      // -----------------------------------------------------------------------
+      // PREACHING REPORTS
+      // -----------------------------------------------------------------------
+      match /preachingReports/{monthId}/submissions/{userId} {
+        allow get: if canAccessCongregationData(congregationId)
+          && (
+            isSameUser(userId)
+            || isPreachingManager()
+            || isAdminOrSupervisor()
+          );
+
+        allow list: if canAccessCongregationData(congregationId)
+          && (
+            isPreachingManager()
+            || isAdminOrSupervisor()
+          );
+
+        allow create, update: if canAccessCongregationData(congregationId)
+          && isSameUser(userId)
+          && validPreachingReportWrite(request.resource.data, congregationId, monthId, userId);
+
+        allow delete: if false;
+      }
+
+      // -----------------------------------------------------------------------
+      // CHANGE LOGS
+      // -----------------------------------------------------------------------
+      match /changeLogs/{logId} {
+        allow get, list: if isAdminOrSupervisor() && canAccessCongregationData(congregationId);
+
+        allow create: if isActive()
+          && canAccessCongregationData(congregationId)
+          && validChangeLogData(request.resource.data, congregationId);
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // REGLAS: DASHBOARD SUMMARY
+    // Documento de resumen pre-calculado por Cloud Functions.
+    // Solo lectura para usuarios activos de la misma congregación.
+    // Escritura reservada exclusivamente para Cloud Functions.
+    // =========================================================================
+
+    match /dashboardSummary/{congregationId} {
+      allow read: if isSuperAdmin() || canAccessCongregationData(congregationId);
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // REGLAS: CLEANING GROUPS
+    // Grupos de limpieza — acceso por congregación.
+    // =========================================================================
+
+    match /cleaningGroups/{groupId} {
+      allow get: if isActive()
+        && resource.data.congregationId is string
+        && canAccessCongregationData(resource.data.congregationId);
+
+      // list restringido a usuarios activos de la misma congregación que el documento.
+      // myCongregationId() != null garantiza que el solicitante tiene congregación asignada.
+      allow list: if isActive() && canAccessCongregationData(myCongregationId());
+
+      allow create: if isCleaningManager()
+        && targetDocInMyCongregation()
+        && validCleaningGroupData(request.resource.data, request.resource.data.congregationId);
+
+      allow update: if isCleaningManager()
+        && storedDocInMyCongregation()
+        && targetDocInMyCongregation()
+        && validCleaningGroupData(request.resource.data, request.resource.data.congregationId)
+        && preservesCreatedAt();
+
+      allow delete: if isAdmin() && storedDocInMyCongregation();
+    }
+
+    // =========================================================================
+    // REGLAS: NOTIFICATIONS (colección raíz)
+    // Nota: las notificaciones de congregación están en
+    // /congregations/{id}/notifications. Esta colección raíz es para
+    // notificaciones globales o de sistema (si se usan).
+    // =========================================================================
+
+    match /notifications/{notificationId} {
+      allow read: if isSuperAdmin() || (isAuthenticated()
+        && (
+          !('userId' in resource.data)
+          || resource.data.userId == currentUid()
+          || isAdminOrSupervisor()
+        ));
+
+      allow create: if isSuperAdmin() || isAdminOrSupervisor();
+
+      allow update: if isSuperAdmin() || (isAuthenticated()
+        && resource.data.userId == currentUid()
+        && sameKeysOnUpdate(['isRead', 'readAt']));
+
+      allow delete: if isSuperAdmin() || isAdmin();
+    }
+  }
+}
