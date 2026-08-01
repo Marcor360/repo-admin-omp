@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { VALIDATION_MESSAGES } from '../../constants/messages';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { AppUser, UpdateUserPayload } from '../../types/user.types';
 import { getUserDisplayName } from '../../utils/userDisplay';
 import { Button } from '../ui/Button';
@@ -52,6 +53,8 @@ export function EditUserModal({
     }
   }, [user]);
 
+  useEscapeKey(onClose, isOpen);
+
   if (!isOpen || !user) return null;
 
 
@@ -91,7 +94,7 @@ export function EditUserModal({
       onMouseDown={onClose}
     >
       <section
-        className="modal edit-user-modal"
+        className="modal"
         role="dialog"
         aria-modal="true"
         aria-label="Editar usuario"
@@ -100,10 +103,9 @@ export function EditUserModal({
         {/* Header */}
         <header className="modal-header">
           <div>
-            <h2 style={{ margin: 0 }}>✏️ Editar usuario</h2>
-            <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
-              {getUserDisplayName(user)} &mdash;{' '}
-              <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{user.email}</span>
+            <h2>✏️ Editar usuario</h2>
+            <p className="modal-header-subtitle">
+              {getUserDisplayName(user)} &mdash; <span className="domain-text">{user.email}</span>
             </p>
           </div>
           <Button variant="ghost" type="button" onClick={onClose} aria-label="Cerrar modal">
@@ -187,14 +189,10 @@ export function EditUserModal({
               />
             </div>
 
-            {(validationError || error) && (
-              <p className="form-error" style={{ marginTop: '12px' }}>
-                {validationError || error}
-              </p>
-            )}
+            {(validationError || error) && <p className="form-error">{validationError || error}</p>}
           </div>
 
-          <div className="modal-footer" style={{ padding: '18px 20px' }}>
+          <div className="modal-footer">
             <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>

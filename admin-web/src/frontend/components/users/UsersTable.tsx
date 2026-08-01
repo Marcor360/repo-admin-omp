@@ -22,7 +22,7 @@ export function UsersTable({ users, onEdit, onChangePassword, onDelete }: UsersT
 
   return (
     <div className="table-wrap">
-      <table>
+      <table className="responsive-table">
         <thead>
           <tr>
             <th>Nombre</th>
@@ -30,49 +30,36 @@ export function UsersTable({ users, onEdit, onChangePassword, onDelete }: UsersT
             <th>Rol</th>
             <th>Estado</th>
             <th>Fecha de creación</th>
-            {hasActions ? <th style={{ width: '180px' }}>Acciones</th> : null}
+            {hasActions ? <th className="col-actions">Acciones</th> : null}
           </tr>
         </thead>
         <tbody>
           {users.map((user) => (
-            <tr key={user.uid || user.id} style={user.isSystemUser ? { background: 'var(--bg-secondary, #f8fafc)' } : undefined}>
-              <td>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <tr key={user.uid || user.id} className={user.isSystemUser ? 'is-system-user' : undefined}>
+              <td data-label="Nombre">
+                <div className="user-name-cell">
                   {getUserDisplayName(user)}
                   {user.isSystemUser && (
-                    <span
-                      title="Usuario protegido del sistema"
-                      style={{
-                        fontSize: '11px',
-                        background: '#e2e8f0',
-                        color: '#475569',
-                        padding: '2px 6px',
-                        borderRadius: '12px',
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                    >
+                    <span className="system-user-badge" title="Usuario protegido del sistema">
                       🤖 Sistema
                     </span>
                   )}
                 </div>
               </td>
-              <td>{user.email || 'Sin email'}</td>
-              <td>
+              <td data-label="Email">{user.email || 'Sin email'}</td>
+              <td data-label="Rol">
                 <RoleBadge role={user.role} />
               </td>
-              <td>
+              <td data-label="Estado">
                 {user.isSystemUser ? (
-                  <span style={{ fontSize: '13px', color: '#64748b' }}>No cuenta para el plan</span>
+                  <span className="text-muted-sm">No cuenta para el plan</span>
                 ) : (
                   <UserStatusBadge isActive={user.isActive} />
                 )}
               </td>
-              <td>{formatDate(user.createdAt)}</td>
+              <td data-label="Fecha de creación">{formatDate(user.createdAt)}</td>
               {hasActions ? (
-                <td>
+                <td data-label="Acciones">
                   <div className="row-actions">
                     {onEdit && (
                       <Button
@@ -80,7 +67,8 @@ export function UsersTable({ users, onEdit, onChangePassword, onDelete }: UsersT
                         variant="secondary"
                         onClick={() => onEdit(user)}
                         title="Editar datos del usuario"
-                        style={{ padding: '5px 10px', fontSize: '12px', minHeight: '30px' }}
+                        aria-label={`Editar a ${getUserDisplayName(user)}`}
+                        className="row-compact-btn"
                       >
                         ✏️ Editar
                       </Button>
@@ -91,13 +79,8 @@ export function UsersTable({ users, onEdit, onChangePassword, onDelete }: UsersT
                         variant="secondary"
                         onClick={() => onChangePassword(user)}
                         title="Cambiar contraseña"
-                        style={{
-                          padding: '5px 10px',
-                          fontSize: '12px',
-                          minHeight: '30px',
-                          background: '#eff8ff',
-                          color: 'var(--info)',
-                        }}
+                        aria-label={`Cambiar contraseña de ${getUserDisplayName(user)}`}
+                        className="row-compact-btn row-compact-btn--info"
                       >
                         🔑 Clave
                       </Button>
@@ -108,7 +91,8 @@ export function UsersTable({ users, onEdit, onChangePassword, onDelete }: UsersT
                         variant="danger"
                         onClick={() => onDelete(user)}
                         title="Eliminar usuario permanentemente"
-                        style={{ padding: '5px 10px', fontSize: '12px', minHeight: '30px' }}
+                        aria-label={`Eliminar a ${getUserDisplayName(user)}`}
+                        className="row-compact-btn"
                       >
                         🗑️
                       </Button>

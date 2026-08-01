@@ -4,6 +4,15 @@ import { requireOwner } from '../middleware/requireOwner';
 import { db, adminAuth } from '../firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkAndAutoDeactivate } from './system.routes';
+import { BILLING_PLANS, type BillingPlanKey, isBillingPlanKey, PLAN_LABELS, PLAN_USER_LIMITS, PLAN_PRICES_MXN } from '../../shared/contracts/billing';
+import { resolvePlanKey } from '../utils/planLegacy';
+import { parseOrRespond } from '../utils/validate';
+import { congregationIdParamSchema, activityQuerySchema, lifecycleBodySchema, deleteCongregationBodySchema } from '../schemas/congregationDetail.schemas';
+import { TtlCache } from '../utils/ttlCache';
+import { getCurrentMonthId } from '../utils/monthId';
+import { writeAuditLog } from '../utils/auditLog';
+import { type LifecycleStatus, deriveLifecycleStatus, isTransitionAllowed } from '../domain/lifecycle';
+import { getStripe } from '../utils/stripeClient';
 
 const router = Router();
 
@@ -43,6 +52,8 @@ router.get('/', requireOwner, async (req, res) => {
         ...data,
         isActive: data.isActive !== undefined ? data.isActive : (data.active !== undefined ? data.active : true),
         nameKey: data.nameKey || data.code || '',
+        planKey: resolvePlanKey(data),
+        lifecycleStatus: deriveLifecycleStatus(data),
         activeUsersCount: totalActiveSnap.data().count - systemActiveSnap.data().count,
         inactiveUsersCount: totalInactiveSnap.data().count - systemInactiveSnap.data().count,
         secretaryName: secData ? (secData.displayName || secData.name || secData.email || 'Sin nombre') : 'Sin asignar',
@@ -67,11 +78,13 @@ router.get('/:id', requireOwner, async (req, res) => {
       return res.status(404).json({ error: 'Congregation not found' });
     }
     const data = doc.data() as any;
-    res.json({ 
-      id: doc.id, 
+    res.json({
+      id: doc.id,
       ...data,
       isActive: data.isActive !== undefined ? data.isActive : (data.active !== undefined ? data.active : true),
-      nameKey: data.nameKey || data.code || ''
+      nameKey: data.nameKey || data.code || '',
+      planKey: resolvePlanKey(data),
+      lifecycleStatus: deriveLifecycleStatus(data),
     });
   } catch (error) {
     res.status(500).json({ error: 'Error fetching congregation' });
@@ -82,13 +95,12 @@ router.get('/:id', requireOwner, async (req, res) => {
 router.post('/', requireOwner, async (req, res) => {
   try {
     if (!db || !adminAuth) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
-    const { name, city, state, country, circuit, plan = 'basico', isActive = true } = req.body;
+    const { name, city, state, country, circuit, planKey = 'omp_80', isActive = true } = req.body;
     if (!name || name.length < 3) {
       return res.status(400).json({ error: 'Name must be at least 3 characters long' });
     }
-    const validPlans = ['basico', 'intermedio', 'completo'];
-    if (!validPlans.includes(plan)) {
-      return res.status(400).json({ error: `Plan inválido. Opciones: ${validPlans.join(', ')}` });
+    if (!isBillingPlanKey(planKey)) {
+      return res.status(400).json({ error: `Plan inválido. Opciones: ${BILLING_PLANS.join(', ')}` });
     }
 
     // Generate nameKey and domain
@@ -105,7 +117,13 @@ router.post('/', requireOwner, async (req, res) => {
       state: state || null,
       country: country || null,
       circuit: circuit || null,
-      plan,
+      billing: {
+        billingMode: 'disabled',
+        status: 'none',
+        planKey,
+        activeUsersLimit: PLAN_USER_LIMITS[planKey],
+        userLimit: PLAN_USER_LIMITS[planKey],
+      },
       isActive,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -168,6 +186,8 @@ router.post('/', requireOwner, async (req, res) => {
         isActive: data.isActive !== undefined ? data.isActive : true,
         nameKey: data.nameKey || '',
         domain: data.domain || domain,
+        planKey: resolvePlanKey(data),
+        lifecycleStatus: deriveLifecycleStatus(data),
       },
       firstAdmin: {
         email: adminEmail,
@@ -185,18 +205,16 @@ router.post('/', requireOwner, async (req, res) => {
 router.patch('/:id', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
-    const { name, city, state, country, circuit, plan } = req.body;
+    const { name, city, state, country, circuit } = req.body;
+    const planKey: BillingPlanKey | undefined = req.body.planKey;
     if (name !== undefined && (!name || name.length < 3)) {
       return res.status(400).json({ error: 'Name must be at least 3 characters long' });
     }
-    if (plan !== undefined) {
-      const validPlans = ['basico', 'intermedio', 'completo'];
-      if (!validPlans.includes(plan)) {
-        return res.status(400).json({ error: `Plan inválido. Opciones: ${validPlans.join(', ')}` });
-      }
+    if (planKey !== undefined && !isBillingPlanKey(planKey)) {
+      return res.status(400).json({ error: `Plan inválido. Opciones: ${BILLING_PLANS.join(', ')}` });
     }
 
-    const updates: any = {
+    const updates: Record<string, unknown> = {
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: req.userEmail
     };
@@ -209,17 +227,62 @@ router.patch('/:id', requireOwner, async (req, res) => {
     if (state !== undefined) updates.state = state;
     if (country !== undefined) updates.country = country;
     if (circuit !== undefined) updates.circuit = circuit;
-    if (plan !== undefined) updates.plan = plan;
+    if (planKey !== undefined) {
+      updates['billing.planKey'] = planKey;
+      updates['billing.activeUsersLimit'] = PLAN_USER_LIMITS[planKey];
+      updates['billing.userLimit'] = PLAN_USER_LIMITS[planKey];
+    }
 
     await db.collection('congregations').doc(req.params.id as string).update(updates);
     const doc = await db.collection('congregations').doc(req.params.id as string).get();
-    res.json({ id: doc.id, ...doc.data() });
+    const data = doc.data();
+    res.json({ id: doc.id, ...data, planKey: resolvePlanKey(data), lifecycleStatus: deriveLifecycleStatus(data) });
   } catch (error) {
     res.status(500).json({ error: 'Error updating congregation' });
   }
 });
 
-// PATCH /api/congregations/:id/status
+/**
+ * Único punto de escritura de estado de ciclo de vida. `isActive` (el campo
+ * que lee la app móvil directamente, sin pasar por este panel) se deriva
+ * siempre de `lifecycleStatus` en la misma llamada a `update()` — nunca por
+ * separado — para que nunca puedan desincronizarse.
+ */
+async function applyLifecycleWrite(
+  congRef: FirebaseFirestore.DocumentReference,
+  to: LifecycleStatus,
+  actor: string,
+  reason?: string,
+  until?: string | null,
+): Promise<void> {
+  const updateData: Record<string, unknown> = {
+    lifecycleStatus: to,
+    isActive: to === 'active',
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: actor,
+  };
+
+  updateData.pauseReason = to === 'paused' ? (reason || 'Pausa manual') : FieldValue.delete();
+  updateData.pausedUntil = to === 'paused' && until ? new Date(until) : FieldValue.delete();
+  updateData.blockReason = to === 'blocked' ? (reason || 'Bloqueo administrativo') : FieldValue.delete();
+
+  // Compatibilidad con el campo legado que ya leía /access-check y el export.
+  updateData.deactivationReason = to === 'active'
+    ? FieldValue.delete()
+    : (reason || (to === 'paused' ? 'Pausa manual' : to === 'blocked' ? 'Bloqueo administrativo' : 'Archivada'));
+
+  if (to === 'active') {
+    updateData.restoredBy = actor;
+    updateData.restoredAt = FieldValue.serverTimestamp();
+  }
+
+  await congRef.update(updateData);
+}
+
+// PATCH /api/congregations/:id/status — atajo legado (isActive boolean).
+// Mantenido por compatibilidad con el botón "Activar/Desactivar" actual;
+// internamente escribe lifecycleStatus igual que /lifecycle para que nunca
+// queden desincronizados.
 router.patch('/:id/status', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
@@ -228,27 +291,58 @@ router.patch('/:id/status', requireOwner, async (req, res) => {
       return res.status(400).json({ error: 'isActive must be a boolean' });
     }
 
-    const updateData: Record<string, unknown> = {
-      isActive,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: req.userEmail,
-    };
+    const congRef = db.collection('congregations').doc(req.params.id as string);
+    await applyLifecycleWrite(congRef, isActive ? 'active' : 'paused', req.userEmail ?? 'superadmin', reason);
 
-    if (!isActive) {
-      // Al desactivar: guardar el motivo
-      updateData.deactivationReason = reason || 'Desactivación temporal';
-    } else {
-      // Al activar: limpiar motivo y marcar como restaurada manualmente
-      updateData.deactivationReason = FieldValue.delete();
-      updateData.restoredBy = req.userEmail;
-      updateData.restoredAt = FieldValue.serverTimestamp();
-    }
-
-    await db.collection('congregations').doc(req.params.id as string).update(updateData);
+    await writeAuditLog({
+      actor: req.userEmail ?? 'superadmin',
+      action: 'lifecycle_change',
+      target: req.params.id as string,
+      metadata: { to: isActive ? 'active' : 'paused', reason: reason ?? null, via: 'legacy_status_endpoint' },
+    });
 
     res.json({ success: true, isActive });
   } catch (error) {
     res.status(500).json({ error: 'Error updating status' });
+  }
+});
+
+// PATCH /api/congregations/:id/lifecycle — activar/pausar/bloquear/archivar.
+router.patch('/:id/lifecycle', requireOwner, async (req, res) => {
+  const params = parseOrRespond(congregationIdParamSchema, req.params, res);
+  if (!params) return;
+  const body = parseOrRespond(lifecycleBodySchema, req.body, res);
+  if (!body) return;
+  if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
+
+  const to = body.status as LifecycleStatus;
+  if ((to === 'paused' || to === 'blocked') && !body.reason) {
+    return res.status(400).json({ error: `El estado "${to}" requiere un motivo (reason).` });
+  }
+
+  try {
+    const congRef = db.collection('congregations').doc(params.id);
+    const congDoc = await congRef.get();
+    if (!congDoc.exists) return res.status(404).json({ error: 'Congregación no encontrada.' });
+
+    const from = deriveLifecycleStatus(congDoc.data());
+    if (!isTransitionAllowed(from, to)) {
+      return res.status(409).json({ error: `No se puede pasar de "${from}" a "${to}".` });
+    }
+
+    await applyLifecycleWrite(congRef, to, req.userEmail ?? 'superadmin', body.reason, body.until);
+
+    await writeAuditLog({
+      actor: req.userEmail ?? 'superadmin',
+      action: 'lifecycle_change',
+      target: params.id,
+      metadata: { from, to, reason: body.reason ?? null, until: body.until ?? null },
+    });
+
+    res.json({ success: true, from, to });
+  } catch (error) {
+    console.error('Error cambiando el ciclo de vida:', error);
+    res.status(500).json({ error: 'Error cambiando el ciclo de vida de la congregación.' });
   }
 });
 
@@ -287,12 +381,19 @@ router.get('/:id/access-check', async (req, res) => {
 
     const cong = congDoc.data()!;
     if (cong.isActive === false) {
+      const lifecycleStatus = deriveLifecycleStatus(cong);
+      const statusMessages: Record<string, string> = {
+        paused: `La congregación "${cong.name}" (${congregationId}) está pausada temporalmente. Motivo: ${cong.pauseReason || cong.deactivationReason || 'Pausa manual'}.`,
+        blocked: `La congregación "${cong.name}" (${congregationId}) está bloqueada administrativamente. Motivo: ${cong.blockReason || cong.deactivationReason || 'Bloqueo administrativo'}.`,
+        archived: `La congregación "${cong.name}" (${congregationId}) fue archivada y ya no está disponible.`,
+      };
       return res.status(403).json({
         allowed: false,
         congregationId: congregationId,
         congregationName: cong.name || '',
-        reason: cong.deactivationReason || 'Desactivación temporal',
-        message: `La congregación "${cong.name}" (${congregationId}) está desactivada. Motivo: ${cong.deactivationReason || 'Desactivación temporal'}.`,
+        lifecycleStatus,
+        reason: cong.blockReason || cong.pauseReason || cong.deactivationReason || 'Desactivación temporal',
+        message: statusMessages[lifecycleStatus] || `La congregación "${cong.name}" (${congregationId}) está desactivada.`,
       });
     }
 
@@ -350,30 +451,271 @@ router.patch('/:id/leadership', requireOwner, async (req, res) => {
   }
 });
 
+// GET /api/congregations/:id/org-chart — Organigrama de solo lectura.
+// Generado automáticamente por reconcileOrgChartOnUserWrite en el principal a
+// partir de servicePosition/serviceDepartment de cada usuario. Nunca se
+// escribe desde aquí: cualquier cambio manual sería sobrescrito por ese
+// trigger.
+router.get('/:id/org-chart', requireOwner, async (req, res) => {
+  const params = parseOrRespond(congregationIdParamSchema, req.params, res);
+  if (!params) return;
+  if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
+
+  try {
+    const congRef = db.collection('congregations').doc(params.id);
+    const [deptSnap, asgSnap] = await Promise.all([
+      congRef.collection('departments').orderBy('order', 'asc').get(),
+      congRef.collection('departmentAssignments').get(),
+    ]);
+
+    const assignmentsByDept = new Map<string, Record<string, unknown>[]>();
+    let coordinador: Record<string, unknown> | null = null;
+    let secretario: Record<string, unknown> | null = null;
+
+    asgSnap.docs.forEach((doc) => {
+      const data = doc.data();
+      const entry = { id: doc.id, ...data };
+      const deptId = String(data.departmentId ?? '');
+      if (!assignmentsByDept.has(deptId)) assignmentsByDept.set(deptId, []);
+      assignmentsByDept.get(deptId)!.push(entry);
+
+      if (data.position === 'coordinador' && !coordinador) coordinador = entry;
+      if (data.position === 'secretario' && !secretario) secretario = entry;
+    });
+
+    const departments = deptSnap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        order: data.order ?? 50,
+        isActive: data.isActive !== false,
+        assignments: assignmentsByDept.get(doc.id) ?? [],
+      };
+    });
+
+    res.json({
+      readOnly: true,
+      readOnlyNotice: 'Este organigrama se genera automáticamente desde las posiciones de servicio de cada usuario. Para cambiarlo, edita la posición del usuario — no se puede editar aquí.',
+      coordinador,
+      secretario,
+      departments,
+    });
+  } catch (error) {
+    console.error('Error obteniendo organigrama:', error);
+    res.status(500).json({ error: 'Error obteniendo el organigrama.' });
+  }
+});
+
+// GET /api/congregations/:id/activity — Timeline unificado de solo lectura:
+// changeLogs (congregation-scoped, escrito por el principal — hoy sin
+// escritores activos, puede venir vacío) + adminAuditLogs (escrito por este
+// panel).
+router.get('/:id/activity', requireOwner, async (req, res) => {
+  const params = parseOrRespond(congregationIdParamSchema, req.params, res);
+  if (!params) return;
+  const query = parseOrRespond(activityQuerySchema, req.query, res);
+  if (!query) return;
+  if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
+
+  try {
+    const [changeLogsSnap, auditLogsSnap] = await Promise.all([
+      db.collection('congregations').doc(params.id).collection('changeLogs')
+        .orderBy('createdAt', 'desc').limit(query.limit).get(),
+      db.collection('adminAuditLogs')
+        .where('target', '==', params.id)
+        .orderBy('createdAt', 'desc').limit(query.limit).get(),
+    ]);
+
+    const toEntry = (source: 'changeLog' | 'adminAuditLog') => (doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+      const data = doc.data();
+      const createdAt = data.createdAt as FirebaseFirestore.Timestamp | undefined;
+      return {
+        id: doc.id,
+        source,
+        actor: data.actor ?? data.updatedBy ?? data.createdBy ?? 'desconocido',
+        action: data.action ?? data.type ?? 'evento',
+        metadata: data.metadata ?? null,
+        createdAtMillis: createdAt?.toMillis() ?? 0,
+      };
+    };
+
+    const entries = [
+      ...changeLogsSnap.docs.map(toEntry('changeLog')),
+      ...auditLogsSnap.docs.map(toEntry('adminAuditLog')),
+    ]
+      .sort((a, b) => b.createdAtMillis - a.createdAtMillis)
+      .slice(0, query.limit);
+
+    res.json({ entries });
+  } catch (error) {
+    console.error('Error obteniendo actividad:', error);
+    res.status(500).json({ error: 'Error obteniendo la actividad de la congregación.' });
+  }
+});
+
+const overviewCache = new TtlCache<Record<string, unknown>>(30_000);
+
+// GET /api/congregations/:id/overview — Agregados en una sola respuesta.
+// Reusa dashboardSummary/{cid} cuando existe; calcula solo lo que falta.
+// Cacheado 30s por congregación (un solo super admin no justifica más).
+router.get('/:id/overview', requireOwner, async (req, res) => {
+  const params = parseOrRespond(congregationIdParamSchema, req.params, res);
+  if (!params) return;
+  if (!db || !adminAuth) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
+
+  const cached = overviewCache.get(params.id);
+  if (cached) {
+    res.json({ ...cached, fromCache: true });
+    return;
+  }
+
+  try {
+    const congDoc = await db.collection('congregations').doc(params.id).get();
+    if (!congDoc.exists) return res.status(404).json({ error: 'Congregación no encontrada.' });
+    const cong = congDoc.data()!;
+
+    const monthId = getCurrentMonthId();
+    // Sin `isSystemUser != true`: Firestore exige un índice compuesto nuevo
+    // para esa combinación de filtros. En vez de eso, contamos por rol con
+    // igualdades simples (ya indexadas, mismo patrón que GET /) y restamos
+    // el usuario admin del sistema aparte — siempre se crea con role:'admin'.
+    const usersActiveByRole = (role: string) =>
+      db!.collection('users')
+        .where('congregationId', '==', params.id)
+        .where('isActive', '==', true)
+        .where('role', '==', role)
+        .count().get();
+
+    const [
+      dashboardSummaryDoc,
+      adminCountSnap,
+      supervisorCountSnap,
+      userCountSnap,
+      systemActiveCountSnap,
+      activeUsersSelectSnap,
+      monthlyTerritorySnap,
+      reportsCountSnap,
+      meetingsThisMonthSnap,
+    ] = await Promise.all([
+      db.collection('dashboardSummary').doc(params.id).get(),
+      usersActiveByRole('admin'),
+      usersActiveByRole('supervisor'),
+      usersActiveByRole('user'),
+      db.collection('users')
+        .where('congregationId', '==', params.id)
+        .where('isActive', '==', true)
+        .where('isSystemUser', '==', true)
+        .count().get(),
+      db.collection('users')
+        .where('congregationId', '==', params.id)
+        .where('isActive', '==', true)
+        .select('uid', 'isSystemUser')
+        .get(),
+      db.collection('congregations').doc(params.id).collection('monthlyTerritoryAssignments').doc(monthId).get(),
+      db.collection('congregations').doc(params.id).collection('preachingReports').doc(monthId).collection('submissions').count().get(),
+      db.collection('congregations').doc(params.id).collection('meetings')
+        .where('startDate', '>=', new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+        .count().get(),
+    ]);
+
+    const usersByRole = {
+      // Resta el/los admin(es) de sistema: siempre tienen role:'admin', nunca supervisor/user.
+      admin: Math.max(0, adminCountSnap.data().count - systemActiveCountSnap.data().count),
+      supervisor: supervisorCountSnap.data().count,
+      user: userCountSnap.data().count,
+    };
+    const activeUsersCount = usersByRole.admin + usersByRole.supervisor + usersByRole.user;
+
+    // Sesión reciente (30 días) resuelta vía Firebase Auth — no hay campo
+    // equivalente en Firestore en el principal.
+    const uids = activeUsersSelectSnap.docs
+      .filter((doc) => doc.data().isSystemUser !== true)
+      .map((doc) => String(doc.data().uid ?? doc.id))
+      .filter(Boolean);
+    let usersWithRecentSession = 0;
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (let i = 0; i < uids.length; i += 100) {
+      const chunk = uids.slice(i, i + 100);
+      const result = await adminAuth.getUsers(chunk.map((uid) => ({ uid })));
+      for (const userRecord of result.users) {
+        const lastSignIn = userRecord.metadata.lastSignInTime ? new Date(userRecord.metadata.lastSignInTime).getTime() : 0;
+        if (lastSignIn >= thirtyDaysAgo) usersWithRecentSession += 1;
+      }
+    }
+
+    const territoriesAssigned = monthlyTerritorySnap.exists
+      ? ((monthlyTerritorySnap.data()?.assignments as { territoryIds?: string[] }[] | undefined) ?? [])
+          .reduce((sum, target) => sum + (target.territoryIds?.length ?? 0), 0)
+      : 0;
+
+    const planKey = resolvePlanKey(cong);
+    const limit = PLAN_USER_LIMITS[planKey];
+
+    const overview = {
+      congregationId: params.id,
+      congregationName: cong.name ?? '',
+      plan: {
+        key: planKey,
+        label: PLAN_LABELS[planKey],
+        limit,
+        priceMxn: PLAN_PRICES_MXN[planKey],
+        activeUsersCount,
+        occupancyPct: Math.min(100, Math.round((activeUsersCount / limit) * 100)),
+      },
+      billing: {
+        billingMode: cong.billing?.billingMode ?? 'disabled',
+        status: cong.billing?.status ?? 'none',
+      },
+      usersByRole,
+      usersWithRecentSession,
+      meetingsThisMonth: meetingsThisMonthSnap.data().count,
+      territoriesAssigned,
+      reportsThisMonth: reportsCountSnap.data().count,
+      dashboardSummary: dashboardSummaryDoc.exists ? dashboardSummaryDoc.data() : null,
+      generatedAt: Date.now(),
+    };
+
+    overviewCache.set(params.id, overview);
+    res.json({ ...overview, fromCache: false });
+  } catch (error) {
+    console.error('Error obteniendo overview:', error);
+    res.status(500).json({ error: 'Error obteniendo el resumen de la congregación.' });
+  }
+});
+
 // PATCH /api/congregations/:id/billing
 router.patch('/:id/billing', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     
-    const { 
-      billingMode, status, plan, maxUsers, 
+    const {
+      billingMode, status,
       exemptReason, exemptUntil,
       stripeCustomerId, stripeSubscriptionId, stripePriceId
     } = req.body;
-    
+    const planKey: BillingPlanKey | undefined = req.body.planKey;
+
     if (!billingMode) {
       return res.status(400).json({ error: 'El billingMode es requerido.' });
     }
+    if (planKey !== undefined && !isBillingPlanKey(planKey)) {
+      return res.status(400).json({ error: `Plan inválido. Opciones: ${BILLING_PLANS.join(', ')}` });
+    }
 
-    const updates: Record<string, any> = {
+    const updates: Record<string, unknown> = {
       'billing.billingMode': billingMode,
       'billing.status': status || 'none',
-      'billing.plan': plan || 'none',
-      'billing.maxUsers': Number(maxUsers) || 0,
       'billing.updatedAt': FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy: req.userEmail
     };
+
+    if (planKey !== undefined) {
+      updates['billing.planKey'] = planKey;
+      updates['billing.activeUsersLimit'] = PLAN_USER_LIMITS[planKey];
+      updates['billing.userLimit'] = PLAN_USER_LIMITS[planKey];
+    }
 
     if (exemptReason !== undefined) updates['billing.exemptReason'] = exemptReason;
     
@@ -427,11 +769,7 @@ router.get('/:id/export', requireOwner, async (req, res) => {
       return String(val);
     };
 
-    const planLabels: Record<string, string> = {
-      basico: 'Básico (10 usuarios)',
-      intermedio: 'Intermedio (30 usuarios)',
-      completo: 'Completo (100 usuarios)',
-    };
+    const planKey = resolvePlanKey(cong);
 
     // 3. Crear workbook
     const wb = new ExcelJS.Workbook();
@@ -464,7 +802,8 @@ router.get('/:id/export', requireOwner, async (req, res) => {
       { campo: 'Ciudad', valor: cong.city || '' },
       { campo: 'Estado', valor: cong.state || '' },
       { campo: 'País', valor: cong.country || '' },
-      { campo: 'Plan OMP', valor: planLabels[cong.plan] || cong.plan || '' },
+      { campo: 'Plan OMP', valor: `${PLAN_LABELS[planKey]} (hasta ${PLAN_USER_LIMITS[planKey]} usuarios)` },
+      { campo: 'Precio del plan', valor: `$${PLAN_PRICES_MXN[planKey]} MXN/mes` },
       { campo: 'Estado', valor: cong.isActive !== false ? 'Activo' : 'Inactivo' },
       { campo: 'Total usuarios', valor: String(users.filter((u: any) => !u.isSystemUser).length) },
       { campo: 'Usuarios activos', valor: String(users.filter((u: any) => u.isActive !== false && !u.isSystemUser).length) },
@@ -588,6 +927,31 @@ router.get('/:id/export', requireOwner, async (req, res) => {
 
 // ─── Helpers para eliminación en cascada ──────────────────────────────────────
 
+/** Cuenta una query sin traer documentos completos — para el modo `?dryRun=true`. */
+async function countQuery(query: FirebaseFirestore.Query): Promise<number> {
+  const snap = await query.count().get();
+  return snap.data().count;
+}
+
+/**
+ * Cuenta recursivamente una colección y sus subcolecciones sin borrar nada.
+ * Necesita traer los documentos (no solo `.count()`) porque `listCollections()`
+ * requiere una referencia de documento concreta — es el mismo costo que ya
+ * paga `deleteCollectionRecursive`, solo que aquí no se borra.
+ */
+async function countCollectionRecursive(colRef: FirebaseFirestore.CollectionReference): Promise<number> {
+  const snapshot = await colRef.get();
+  const total = snapshot.size;
+  const subTotals = await Promise.all(
+    snapshot.docs.map(async (doc) => {
+      const subCols = await doc.ref.listCollections();
+      const counts = await Promise.all(subCols.map((subCol) => countCollectionRecursive(subCol)));
+      return counts.reduce((a, b) => a + b, 0);
+    })
+  );
+  return total + subTotals.reduce((a, b) => a + b, 0);
+}
+
 /** Elimina todos los documentos de una query en lotes de 450 */
 async function deleteQueryInBatches(
   query: FirebaseFirestore.Query,
@@ -645,13 +1009,16 @@ async function deleteCollectionRecursive(
 }
 
 // DELETE /api/congregations/:id  — Eliminación total en cascada
+// ?dryRun=true devuelve el summary sin borrar ni cancelar nada.
 router.delete('/:id', requireOwner, async (req, res) => {
   if (!db || !adminAuth) {
     return res.status(500).json({ error: 'Firebase Admin no configurado.' });
   }
 
   const congregationId = req.params.id as string;
+  const dryRun = req.query.dryRun === 'true';
   const summary: Record<string, number> = {};
+  let stripeSubscriptionId: string | null;
 
   try {
     // 1. Verificar que existe
@@ -659,15 +1026,71 @@ router.delete('/:id', requireOwner, async (req, res) => {
     if (!congDoc.exists) {
       return res.status(404).json({ error: 'Congregación no encontrada.' });
     }
-    const congName = (congDoc.data() as any)?.name || congregationId;
+    const congData = congDoc.data()!;
+    const congName = congData.name || congregationId;
 
-    // 2. Obtener todos los usuarios de la congregación
+    // 2. Confirmación explícita del nombre — obligatoria incluso en dry-run,
+    // para que el preview refleje exactamente lo que borraría el request real.
+    const body = parseOrRespond(deleteCongregationBodySchema, req.body, res);
+    if (!body) return;
+    if (body.confirmName.trim() !== String(congName).trim()) {
+      return res.status(400).json({ error: `El nombre no coincide. Escribe exactamente "${congName}" para confirmar.` });
+    }
+
+    // 3. Suscripción de Stripe viva: cancelar antes de borrar, o abortar.
+    stripeSubscriptionId = (congData.billing?.stripeSubscriptionId as string | undefined) ?? null;
+    if (stripeSubscriptionId && !dryRun) {
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.status(409).json({
+          error: 'Hay una suscripción de Stripe activa y STRIPE_SECRET_KEY no está configurada. No se puede borrar dejando un cobro vivo.',
+        });
+      }
+      try {
+        await stripe.subscriptions.cancel(stripeSubscriptionId);
+      } catch (stripeError) {
+        console.error('Error cancelando suscripción de Stripe:', stripeError);
+        return res.status(409).json({
+          error: 'No se pudo cancelar la suscripción de Stripe. Resuelve la facturación antes de borrar la congregación.',
+        });
+      }
+    }
+
+    if (dryRun) {
+      const usersCount = await countQuery(db.collection('users').where('congregationId', '==', congregationId));
+      summary.users = usersCount;
+      summary.rootNotifications = await countQuery(db.collection('notifications').where('congregationId', '==', congregationId));
+      summary.events = await countQuery(db.collection('events').where('congregationId', '==', congregationId));
+      summary.rootCleaningGroups = await countQuery(db.collection('cleaningGroups').where('congregationId', '==', congregationId));
+      summary.rootCleaningGroupsLegacy = await countQuery(db.collection('cleaning_groups').where('congregationId', '==', congregationId));
+      const dashDoc = await db.collection('dashboardSummary').doc(congregationId).get();
+      summary.dashboardSummary = dashDoc.exists ? 1 : 0;
+      const subCollections = await db.collection('congregations').doc(congregationId).listCollections();
+      summary.subCollections = subCollections.length;
+      const subCounts = await Promise.all(subCollections.map((subCol) => countCollectionRecursive(subCol)));
+      summary.subDocumentsDeleted = subCounts.reduce((a, b) => a + b, 0);
+
+      return res.json({ success: true, dryRun: true, congregationId, congregationName: congName, stripeSubscriptionId, summary });
+    }
+
+    // 4. Snapshot forense ANTES de borrar nada — no es un backup completo,
+    // pero deja rastro de qué existía y quién lo borró. PITR (7 días) es el
+    // último recurso real de recuperación (ver README).
+    await db.collection('deletedCongregations').doc(congregationId).set({
+      congregationId,
+      congregationName: congName,
+      snapshot: congData,
+      deletedBy: req.userEmail ?? 'superadmin',
+      deletedAt: FieldValue.serverTimestamp(),
+    });
+
+    // 5. Obtener todos los usuarios de la congregación
     const usersSnap = await db.collection('users')
       .where('congregationId', '==', congregationId)
       .get();
     summary.users = usersSnap.size;
 
-    // 3. Eliminar usuarios: Auth + pushTokens (subcolección) + documento Firestore
+    // 6. Eliminar usuarios: Auth + pushTokens (subcolección) + documento Firestore
     const userDeletions = usersSnap.docs.map(async (userDoc) => {
       const uid = userDoc.data().uid || userDoc.id;
 
@@ -749,6 +1172,7 @@ router.delete('/:id', requireOwner, async (req, res) => {
       success: true,
       congregationId,
       congregationName: congName,
+      stripeSubscriptionCanceled: stripeSubscriptionId,
       summary,
     });
 

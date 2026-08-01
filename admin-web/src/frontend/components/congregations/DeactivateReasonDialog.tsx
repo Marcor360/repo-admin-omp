@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { Button } from '../ui/Button';
 
 export const DEACTIVATION_REASONS = [
   'Falta de pago de servicios',
@@ -26,11 +28,19 @@ export function DeactivateReasonDialog({
 }: DeactivateReasonDialogProps) {
   const [selectedReason, setSelectedReason] = useState<DeactivationReason>(DEACTIVATION_REASONS[2]);
 
+  useEscapeKey(onCancel, isOpen);
+
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="deactivate-reason-modal">
+    <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
+      <div
+        className="deactivate-reason-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Desactivar congregación"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         {/* Header */}
         <div className="deactivate-reason-header">
           <span className="deactivate-reason-icon">⚠️</span>
@@ -74,22 +84,12 @@ export function DeactivateReasonDialog({
 
         {/* Footer */}
         <div className="deactivate-reason-footer">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={onCancel}
-            disabled={loading}
-          >
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={loading}>
             Cancelar
-          </button>
-          <button
-            type="button"
-            className="btn-danger"
-            onClick={() => onConfirm(selectedReason)}
-            disabled={loading}
-          >
+          </Button>
+          <Button type="button" variant="danger" onClick={() => onConfirm(selectedReason)} disabled={loading}>
             {loading ? 'Desactivando...' : 'Desactivar'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

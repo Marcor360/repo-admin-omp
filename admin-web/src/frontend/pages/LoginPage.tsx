@@ -38,8 +38,14 @@ export function LoginPage() {
     setSigningIn(true);
     try {
       await loginWithGoogle();
-    } catch {
-      setError('No se pudo iniciar sesión con Google. Intenta de nuevo.');
+    } catch (err) {
+      console.error('Error en signInWithPopup:', err);
+      const code = (err as { code?: string })?.code;
+      setError(
+        code
+          ? `No se pudo iniciar sesión con Google (${code}).`
+          : 'No se pudo iniciar sesión con Google. Intenta de nuevo.',
+      );
     } finally {
       setSigningIn(false);
     }
@@ -53,7 +59,7 @@ export function LoginPage() {
           <h1>OMP Admin Portal</h1>
           <p>Acceso exclusivo para el propietario del sistema.</p>
         </div>
-        <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+        <div className="login-body">
           {loading ? (
             <p>Verificando identidad...</p>
           ) : (
@@ -61,9 +67,7 @@ export function LoginPage() {
               <Button type="button" onClick={handleLogin} disabled={signingIn}>
                 {signingIn ? 'Conectando...' : 'Iniciar sesión con Google'}
               </Button>
-              {error && (
-                <p style={{ color: 'var(--error-color)', marginTop: '1rem' }}>{error}</p>
-              )}
+              {error && <p className="form-error login-error">{error}</p>}
             </>
           )}
         </div>

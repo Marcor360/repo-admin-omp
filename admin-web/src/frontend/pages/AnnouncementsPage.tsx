@@ -86,7 +86,7 @@ export function AnnouncementsPage() {
 
   return (
     <section className="page-stack">
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="page-header">
         <div>
           <h1>Avisos del Sistema</h1>
           <p>Gestiona los comunicados globales para la app móvil y el portal web.</p>
@@ -96,11 +96,7 @@ export function AnnouncementsPage() {
         </Button>
       </div>
 
-      {notice && (
-        <div style={{ background: 'var(--success-bg)', color: 'var(--success)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-          {notice}
-        </div>
-      )}
+      {notice && <div className="notice success">{notice}</div>}
 
       <Card>
         <AnnouncementList

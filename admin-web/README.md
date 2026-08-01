@@ -42,15 +42,28 @@ Variables del servidor:
   puede quedar vacío (las llamadas son same-origin). `GET
   /api/congregations/:id/access-check` es la única ruta pública y no depende
   de esta variable, porque la consume la app móvil desde otro origen.
-- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY`:
-  credenciales explícitas opcionales para Firebase Admin. La clave privada debe
-  representar sus saltos de línea mediante `\n`.
-- El resto de las variables `FIREBASE_*` de `.env.example` representa los campos
-  restantes de una cuenta de servicio.
+- `FIREBASE_PROJECT_ID`: proyecto usado por Firebase Admin cuando no lo aporta
+  automáticamente el entorno.
+- `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY`: alternativa exclusiva para
+  desarrollo local fuera de gcloud/ADC. La clave privada representa sus saltos
+  de línea mediante `\n`. No deben configurarse en Cloud Run.
 
 No guardes claves privadas ni archivos `serviceAccount*.json` en el repositorio.
 En Cloud Run se recomienda usar Application Default Credentials mediante la
 identidad del servicio, sin variables de clave privada.
+
+## Flujo de inicio de sesión
+
+La pantalla inicial permite elegir una cuenta de Google. El backend acepta la
+sesión únicamente cuando el correo está en `OWNER_EMAILS`, está verificado, fue
+autenticado por Google y tiene el claim `superAdmin`.
+
+![Inicio de sesión con Google](docs/images/login.png)
+
+Una cuenta que no cumpla todas las condiciones se envía a la pantalla de acceso
+no autorizado sin mostrar información administrativa.
+
+![Acceso no autorizado](docs/images/not-authorized.png)
 
 ## Desarrollo local
 
@@ -78,7 +91,7 @@ npm run validate
 npm run build
 ```
 
-`validate` ejecuta la comprobación de TypeScript y ESLint. El workflow
+`validate` ejecuta TypeScript, ESLint y las pruebas de contrato (Vitest). El workflow
 `.github/workflows/admin-web-validate.yml` ejecuta la misma validación en cada
 pull request que modifica `admin-web/`.
 
@@ -159,3 +172,95 @@ sesiones activas mueren de inmediato).
 Una clave de cuenta de servicio que haya sido publicada debe revocarse, aunque el
 archivo se elimine después. Si llegó a Git remoto, también permanece en el
 historial hasta que este se limpie. No reutilices una clave expuesta.
+
+## Contrato de planes de facturación
+
+Las claves de plan (`omp_80`/`omp_150`/`omp_250`), sus límites de usuarios y sus
+precios en MXN viven en `src/shared/contracts/billing.ts`, copiados
+literalmente de `Marcor360/OMP@v1.31.3` (`src/types/billing.ts`). No los
+edites a mano sin revisar primero si el principal cambió: el test en
+`src/shared/contracts/__tests__/billing.contract.test.ts` (`npm run test`)
+congela los valores actuales y falla si divergen sin que nadie se haya dado
+cuenta. Tras cada release de OMP que toque `billing.ts`, compara ese archivo
+contra el original y actualiza ambos (constantes y test) a la vez.
+
+El servidor escribe el plan en `billing.planKey` + `billing.activeUsersLimit`
++ `billing.userLimit` — los mismos campos que usa el flujo real de Stripe
+(`functions/src/billing/stripe/billing-state.ts` en el principal). Nunca en
+`plan` (raíz) ni `billing.plan`: esos campos existieron en versiones
+anteriores del panel pero el principal nunca los lee.
+
+Si quedan congregaciones con datos del modelo viejo (`plan: 'basico'` etc.),
+corrige con:
+
+```bash
+npx tsx scripts/migrate-plan-keys.ts        # dry-run: solo reporta
+npm run migrate:plan-keys -- --apply        # escribe y registra en adminAuditLogs
+```
+
+## Ciclo de vida de la congregación
+
+`lifecycleStatus` (`active | paused | blocked | archived`) es un modelo propio
+de este panel — el principal no lo conoce. `isActive` (el único campo que
+lee `src/context/user-context.tsx` en OMP directamente vía Firestore, sin
+pasar por este panel) **siempre** se deriva de `lifecycleStatus === 'active'`
+y se escribe en la misma operación (`PATCH /:id/lifecycle` y el atajo legado
+`PATCH /:id/status`, que internamente usa la misma función). Nunca deben
+desincronizarse: si algún día se toca esa lógica, hazlo en
+`src/server/routes/congregations.routes.ts::applyLifecycleWrite`, el único
+punto de escritura.
+
+Transiciones permitidas (`src/server/domain/lifecycle.ts`):
+
+```
+active   -> paused, blocked, archived
+paused   -> active, blocked, archived
+blocked  -> active, paused, archived
+archived -> active                      (solo se puede restaurar, no "pausar" algo archivado)
+```
+
+Congregaciones existentes sin `lifecycleStatus` (antes de esta fase) se
+resuelven al vuelo (`true` → `active`, `false` → `paused`) hasta que corras:
+
+```bash
+npm run migrate:lifecycle-status              # dry-run
+npm run migrate:lifecycle-status -- --apply
+```
+
+## Borrado de congregación — variables de Stripe
+
+`DELETE /api/congregations/:id` exige `{ confirmName }` en el body (debe
+coincidir exactamente con el `name` de la congregación) y soporta
+`?dryRun=true` para previsualizar el `summary` sin borrar nada.
+
+Si la congregación tiene `billing.stripeSubscriptionId`, el borrado cancela
+esa suscripción **antes** de tocar Firestore. Si Stripe falla o
+`STRIPE_SECRET_KEY` no está configurada, el borrado se aborta con `409` —
+nunca se borra dejando un cobro vivo.
+
+```
+STRIPE_SECRET_KEY=sk_live_...   # o sk_test_... en desarrollo
+```
+
+Antes de borrar, se guarda un snapshot forense en
+`deletedCongregations/{congregationId}` (documento raíz + actor + fecha) —
+no es un respaldo completo, pero deja rastro de qué existía. El **PITR de
+Firestore (7 días)** sigue siendo el último recurso real de recuperación si
+algo sale mal a mitad del borrado en cascada; después de eso, el snapshot en
+`deletedCongregations` es lo único que queda.
+
+**Idempotencia:** si el proceso se corta a la mitad (crash, timeout), un
+reintento es seguro para las colecciones que se borran por query
+(`notifications`, `events`, `cleaningGroups`, subcolecciones) porque
+simplemente no encontrarán más documentos que borrar. El único estado
+verdaderamente inconsistente posible es: Stripe ya canceló la suscripción
+pero Firestore no se terminó de borrar — en ese caso la congregación queda a
+medio borrar pero sin cobro activo, que es preferible a la inversa. Vuelve a
+llamar al mismo `DELETE` para completarlo.
+
+## Reglas de Firestore
+
+Este repositorio no contiene ni despliega `firestore.rules`. El panel opera con
+Firebase Admin SDK, que no evalúa reglas de cliente. La única fuente de verdad de
+las reglas está en `rules_src/` del repositorio principal OMP; copiarla aquí crea
+una segunda versión que queda obsoleta y podría desplegarse por accidente.

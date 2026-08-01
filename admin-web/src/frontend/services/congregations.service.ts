@@ -112,8 +112,15 @@ export async function updateCongregationLeadership(
   if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateLeadership);
 }
 
-export async function deleteCongregation(id: string): Promise<{ congregationName: string; summary: Record<string, number> }> {
-  const res = await apiFetch(`/api/congregations/${id}`, { method: 'DELETE' });
+export async function deleteCongregation(
+  id: string,
+  confirmName: string,
+): Promise<{ congregationName: string; summary: Record<string, number> }> {
+  const res = await apiFetch(`/api/congregations/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmName }),
+  });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.deleteCongregation);
   return { congregationName: data.congregationName, summary: data.summary };

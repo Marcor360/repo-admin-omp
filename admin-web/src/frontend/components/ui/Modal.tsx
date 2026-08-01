@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { Button } from './Button';
 
 interface ModalProps {
@@ -9,6 +10,8 @@ interface ModalProps {
 }
 
 export function Modal({ title, children, isOpen, onClose }: ModalProps) {
+  useEscapeKey(onClose, isOpen);
+
   if (!isOpen) return null;
 
   return (

@@ -1,13 +1,31 @@
 :root {
   color-scheme: light;
+
+  /* ── Escala de color primitiva ─────────────────────────────────────── */
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #667085;
+  --gray-600: #475569;
+  --gray-700: #344054;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+
+  /* ── Tokens semánticos (lo que consume el resto del CSS) ──────────────
+     Cambian de valor en modo oscuro (ver @media prefers-color-scheme más
+     abajo); el resto del archivo nunca debería usar un color crudo. */
   --bg: #f6f7fb;
   --surface: #ffffff;
-  --surface-muted: #f1f5f9;
+  --surface-muted: var(--gray-100);
   --text: #101828;
-  --muted: #667085;
+  --text-muted: var(--gray-500);
+  --muted: var(--gray-500); /* alias histórico de --text-muted, mismo valor siempre */
   --border: #d0d5dd;
   --primary: #1f6feb;
   --primary-hover: #175dcc;
+  /* Texto/acento de estado (badges, texto sobre fondo tintado) — cambia en oscuro. */
   --danger: #b42318;
   --danger-bg: #fef3f2;
   --success: #027a48;
@@ -16,13 +34,84 @@
   --warning-bg: #fffaeb;
   --info: #175cd3;
   --info-bg: #eff8ff;
+  /* Fondo sólido de botón — se mantiene oscuro en ambos temas para que el
+     texto blanco siempre tenga contraste suficiente (no lo cambies junto
+     con --danger de arriba, que sí varía por tema). */
+  --danger-solid: #b42318;
+
+  /* ── Espaciado (escala de 4px) ─────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Radios ────────────────────────────────────────────────────────── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  /* ── Sombras ───────────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow: 0 12px 32px rgba(16, 24, 40, 0.08);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --shadow-lg: 0 24px 80px rgba(15, 23, 42, 0.28);
+
+  /* ── Tipografía ────────────────────────────────────────────────────── */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --text-2xl: 32px;
+
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary) 40%, transparent);
+
+  font-family: var(--font-sans);
 }
 
-* {
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0b1220;
+    --surface: #121a2b;
+    --surface-muted: #1b2436;
+    --text: #e6ebf3;
+    --text-muted: #93a2b8;
+    --muted: #93a2b8;
+    --border: #2a3448;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.6);
+
+    /* Más brillantes que en claro: en oscuro se leen como texto/badge sobre
+       un fondo tintado oscuro, no como texto oscuro sobre blanco. */
+    --danger: #f87171;
+    --danger-bg: rgba(248, 113, 113, 0.16);
+    --success: #4ade80;
+    --success-bg: rgba(74, 222, 128, 0.14);
+    --warning: #fbbf24;
+    --warning-bg: rgba(251, 191, 36, 0.14);
+    --info: #7dd3fc;
+    --info-bg: rgba(125, 211, 252, 0.14);
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
 }
 
 body {
@@ -40,12 +129,53 @@ button,
 input,
 select {
   font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .admin-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100vh;
+}
+
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-overlay {
+  display: none;
 }
 
 .sidebar {
@@ -233,6 +363,135 @@ tr:last-child td {
   border-bottom: 0;
 }
 
+.col-actions {
+  width: 180px;
+}
+
+.text-muted-sm {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.domain-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--primary);
+}
+
+.user-name-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.system-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+}
+
+tr.is-system-user {
+  background: var(--surface-muted);
+}
+
+.row-compact-btn {
+  padding: 5px 10px !important;
+  font-size: 12px !important;
+  min-height: 30px !important;
+}
+
+.row-compact-btn--info {
+  background: var(--info-bg) !important;
+  color: var(--info) !important;
+}
+
+/* ── Tabla → tarjetas apiladas bajo 640px ──────────────────────────────
+   Misma marca (<table>), sin duplicar el render: cada <td> lleva
+   data-label="Encabezado" y aquí lo convertimos en una pseudo-cabecera. */
+@media (max-width: 640px) {
+  .table-wrap {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .responsive-table {
+    min-width: 0;
+  }
+
+  .responsive-table thead {
+    display: none;
+  }
+
+  .responsive-table,
+  .responsive-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .responsive-table tr {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .responsive-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .responsive-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    text-align: right;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .responsive-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .responsive-table td::before {
+    content: attr(data-label);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .responsive-table td.col-actions,
+  .responsive-table td[data-label='Acciones'] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .responsive-table td[data-label='Acciones']::before {
+    text-align: left;
+    margin-bottom: var(--space-2);
+  }
+
+  .responsive-table .row-actions {
+    justify-content: flex-start;
+  }
+}
+
 .row-actions,
 .legend-row {
   display: flex;
@@ -282,7 +541,7 @@ tr:last-child td {
 }
 
 .button-danger {
-  background: var(--danger);
+  background: var(--danger-solid);
   color: #fff;
 }
 
@@ -537,24 +796,44 @@ tr:last-child td {
   color: var(--primary);
 }
 
-@media (max-width: 1100px) {
+/* ── Cortes responsivos: móvil <640px · tablet 640–1024px · escritorio >1024px ── */
+
+/* Tablet y móvil: la sidebar pasa a ser un cajón (drawer) fuera de pantalla,
+   con overlay, cerrable con Escape (AdminLayout.tsx) o clic fuera. */
+@media (max-width: 1024px) {
   .admin-shell {
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
-    position: sticky;
-    top: 0;
-    z-index: 8;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
+  .sidebar-toggle {
+    display: inline-flex;
   }
 
-  .sidebar-nav {
-    display: flex;
-    gap: 8px;
+  .topbar {
+    padding-left: 68px;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 41;
+    width: min(280px, 84vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow-lg);
+    overflow-y: auto;
+  }
+
+  .sidebar--open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 39;
   }
 
   .stats-grid,
@@ -563,36 +842,26 @@ tr:last-child td {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .page-content {
-    padding: 18px;
+    padding: var(--space-4);
   }
 
   .page-header,
-  .section-header,
-  .topbar {
+  .section-header {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .topbar {
     height: auto;
-    padding: 16px;
+    padding: 16px 16px 16px 68px;
   }
 
   .stats-grid,
   .detail-grid,
   .form-grid {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .sidebar-nav {
-    width: 100%;
   }
 }
 
@@ -816,6 +1085,12 @@ tr:last-child td {
   font-size: 20px;
   font-weight: 900;
   line-height: 1;
+}
+
+.plan-card-price {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 /* ─── Plan Progress Bar ──────────────────────────────────────────────────── */
@@ -1316,4 +1591,600 @@ tr:last-child td {
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FASE D — utilidades, variantes de modal y componentes ui/ nuevos
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Utilidades de texto y layout genéricas ────────────────────────────── */
+.text-sm {
+  font-size: var(--text-sm);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--bg);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.info-banner {
+  background: var(--info-bg);
+  color: var(--info);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.readonly-panel {
+  margin-top: var(--space-6);
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+
+.readonly-panel h4 {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+}
+
+.readonly-panel p {
+  margin: 4px 0;
+}
+
+/* ── Variantes de tamaño de modal ──────────────────────────────────────── */
+.modal--sm {
+  width: min(400px, 100%);
+}
+
+.modal--md {
+  width: min(500px, 100%);
+}
+
+.modal-body--scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.modal-header--accent {
+  background: linear-gradient(135deg, #1e3a5f, var(--primary));
+  color: #fff;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.modal-header--accent h2 {
+  color: #fff;
+}
+
+.modal-header--accent .modal-header-subtitle {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.modal-header--accent .modal-header-close {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 24px;
+}
+
+.modal-header-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* ── Campo de contraseña con botón mostrar/ocultar ─────────────────────── */
+.password-field-wrap {
+  position: relative;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 11px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-muted);
+  padding: 0;
+  line-height: 1;
+}
+
+.password-strength {
+  display: grid;
+  gap: 6px;
+}
+
+.password-strength-bars {
+  display: flex;
+  gap: 4px;
+  height: 6px;
+}
+
+.password-strength-bar {
+  flex: 1;
+  border-radius: 4px;
+  background: var(--border);
+  transition: background 0.25s;
+}
+
+.password-strength-bar--1 { background: #ef4444; }
+.password-strength-bar--2 { background: #f97316; }
+.password-strength-bar--3 { background: #eab308; }
+.password-strength-bar--4 { background: #22c55e; }
+.password-strength-bar--5 { background: #16a34a; }
+
+.password-strength-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.password-strength-label--1 { color: #ef4444; }
+.password-strength-label--2 { color: #f97316; }
+.password-strength-label--3 { color: #eab308; }
+.password-strength-label--4 { color: #22c55e; }
+.password-strength-label--5 { color: #16a34a; }
+
+.password-match {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.password-match--ok {
+  color: var(--success);
+}
+
+.password-match--fail {
+  color: var(--danger);
+}
+
+/* ── Login ──────────────────────────────────────────────────────────────── */
+.login-body {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.login-error {
+  margin-top: 1rem;
+}
+
+/* ── Anuncios ───────────────────────────────────────────────────────────── */
+.announcement-type-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.announcement-target {
+  text-transform: capitalize;
+}
+
+.announcement-date-start {
+  color: var(--success);
+}
+
+.announcement-date-end {
+  color: var(--danger);
+}
+
+.announcement-delete-btn {
+  color: var(--danger) !important;
+}
+
+.announcement-modal-body {
+  padding: var(--space-6);
+}
+
+.announcement-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.announcement-modal-icon {
+  border-radius: var(--radius-md);
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.announcement-modal-head h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.announcement-modal-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.announcement-modal-actions {
+  margin-top: var(--space-6);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.announcement-modal--info .announcement-modal-icon {
+  background: var(--info-bg);
+  border-color: var(--info);
+  color: var(--info);
+}
+
+.announcement-modal--success .announcement-modal-icon {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.announcement-modal--warning .announcement-modal-icon {
+  background: var(--warning-bg);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.announcement-modal--maintenance .announcement-modal-icon {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.announcement-modal--info { border-top: 4px solid var(--info); }
+.announcement-modal--success { border-top: 4px solid var(--success); }
+.announcement-modal--warning { border-top: 4px solid var(--warning); }
+.announcement-modal--maintenance { border-top: 4px solid var(--danger); }
+
+/* ── Tarjeta "Capacidad del plan" ───────────────────────────────────────── */
+.capacity-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+  gap: var(--space-4);
+}
+
+.capacity-card-title {
+  margin: 0 0 2px;
+}
+
+.capacity-card-remaining {
+  text-align: right;
+}
+
+.capacity-remaining-num {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.capacity-remaining-num--primary { color: var(--primary); }
+.capacity-remaining-num--warning { color: var(--warning); }
+.capacity-remaining-num--danger { color: var(--danger); }
+
+.capacity-card-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.capacity-price-row {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.domain-text--strong {
+  font-weight: 700;
+  font-size: 1em;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+.tabs {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.tabs-list {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.tabs-tab {
+  border: 0;
+  background: none;
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.tabs-tab:hover {
+  color: var(--text);
+}
+
+.tabs-tab--active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ── Table (componente genérico) ───────────────────────────────────────── */
+.table-sort-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.table-sort-btn:hover {
+  color: var(--text);
+}
+
+/* ── StatCard ───────────────────────────────────────────────────────────── */
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stat-card-icon {
+  font-size: 18px;
+}
+
+.stat-card-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.stat-card-value {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--text-2xl);
+  letter-spacing: -0.03em;
+}
+
+.stat-card-hint {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.stat-card--success .stat-card-value { color: var(--success); }
+.stat-card--warning .stat-card-value { color: var(--warning); }
+.stat-card--danger .stat-card-value { color: var(--danger); }
+
+/* ── ProgressBar ────────────────────────────────────────────────────────── */
+.progress-bar-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-bar-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 10px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+}
+
+.progress-bar-fill--primary { background: var(--primary); }
+.progress-bar-fill--success { background: var(--success); }
+.progress-bar-fill--warning { background: var(--warning); }
+.progress-bar-fill--danger { background: var(--danger); }
+
+/* ── Skeleton ───────────────────────────────────────────────────────────── */
+.skeleton {
+  display: inline-block;
+  background: linear-gradient(90deg, var(--surface-muted) 25%, var(--border) 37%, var(--surface-muted) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+.skeleton--text {
+  display: block;
+  height: 1em;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.skeleton--block {
+  display: block;
+  width: 100%;
+  height: 80px;
+  border-radius: var(--radius-md);
+}
+
+.skeleton--circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.toast-stack {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  z-index: 60;
+  display: grid;
+  gap: var(--space-2);
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-base);
+  color: var(--text);
+  animation: slideUp 0.2s ease;
+}
+
+.toast--success {
+  border-left-color: var(--success);
+}
+
+.toast--danger {
+  border-left-color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .toast-stack {
+    left: var(--space-4);
+    right: var(--space-4);
+    bottom: var(--space-4);
+    max-width: none;
+  }
+}
+
+/* ── Tooltip ────────────────────────────────────────────────────────────── */
+.tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 30;
+}
+
+.tooltip-wrap:hover .tooltip-bubble,
+.tooltip-wrap:focus-within .tooltip-bubble {
+  opacity: 1;
+}
+
+/* ── Drawer ─────────────────────────────────────────────────────────────── */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 50;
+  display: flex;
+}
+
+.drawer {
+  background: var(--surface);
+  width: min(420px, 100%);
+  height: 100%;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s ease;
+}
+
+.drawer--right {
+  margin-left: auto;
+}
+
+.drawer--left {
+  margin-right: auto;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-header h2 {
+  margin: 0;
+}
+
+.drawer-body {
+  padding: var(--space-5);
+  overflow-y: auto;
+  flex: 1;
 }

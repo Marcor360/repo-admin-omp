@@ -166,7 +166,7 @@ export function CongregationsPage() {
     }
   }
 
-  async function handleDelete() {
+  async function handleDelete(confirmName: string) {
     if (!deleteTarget) return;
     setDeleting(true);
     setError('');
@@ -177,7 +177,7 @@ export function CongregationsPage() {
       // Continuar con la eliminación aunque falle la exportación
     }
     try {
-      const result = await deleteCongregation(deleteTarget.id);
+      const result = await deleteCongregation(deleteTarget.id, confirmName);
       setDeleteTarget(null);
       setNotice(`Congregación "${result.congregationName}" eliminada. Se descargó el respaldo Excel con todos los datos. Usuarios eliminados: ${result.summary.users ?? 0}.`);
       await loadCongregations();

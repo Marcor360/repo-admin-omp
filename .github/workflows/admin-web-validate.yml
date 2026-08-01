@@ -1,6 +1,12 @@
 name: Admin web validation
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'admin-web/**'
+      - '.github/workflows/admin-web-validate.yml'
   pull_request:
     paths:
       - 'admin-web/**'

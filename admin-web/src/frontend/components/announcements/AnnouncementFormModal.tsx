@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { VALIDATION_MESSAGES } from '../../constants/messages';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { AnnouncementTarget, AnnouncementType, CreateAnnouncementPayload, SystemAnnouncement, UpdateAnnouncementPayload } from '../../types/announcement.types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -69,6 +70,8 @@ export function AnnouncementFormModal({
     }
   }, [isOpen, announcement]);
 
+  useEscapeKey(onClose, isOpen);
+
   if (!isOpen) return null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -109,22 +112,21 @@ export function AnnouncementFormModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className="modal"
+        className="modal modal--md"
         role="dialog"
         aria-modal="true"
         aria-label={isEditing ? 'Editar aviso' : 'Nuevo aviso'}
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ width: 'min(500px, 100%)' }}
       >
         <header className="modal-header">
           <h2>{isEditing ? '✏️ Editar aviso' : '📢 Nuevo aviso'}</h2>
-          <Button variant="ghost" type="button" onClick={onClose}>
+          <Button variant="ghost" type="button" onClick={onClose} aria-label="Cerrar">
             ×
           </Button>
         </header>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="modal-body form-stack">
             <Input
               id="ann-title"
               label="Título *"
@@ -136,15 +138,14 @@ export function AnnouncementFormModal({
             <label className="field">
               <span className="field-label">Mensaje *</span>
               <textarea
-                className="input"
-                style={{ resize: 'vertical', minHeight: '80px' }}
+                className="input textarea"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 required
               />
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div className="form-grid">
               <Select
                 id="ann-type"
                 label="Tipo *"
@@ -170,7 +171,7 @@ export function AnnouncementFormModal({
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div className="form-grid">
               <Input
                 id="ann-starts"
                 label="Fecha de inicio *"
@@ -188,45 +189,39 @@ export function AnnouncementFormModal({
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'center' }}>
-              <Input
-                id="ann-priority"
-                label="Prioridad (0 a 10, 10=máxima)"
-                type="number"
-                min={0}
-                max={10}
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-              />
-            </div>
+            <Input
+              id="ann-priority"
+              label="Prioridad (0 a 10, 10=máxima)"
+              type="number"
+              min={0}
+              max={10}
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--bg)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <div className="checkbox-group">
+              <label className="checkbox-label">
                 <input
                   type="checkbox"
                   checked={showOnce}
                   onChange={(e) => setShowOnce(e.target.checked)}
                 />
-                <span style={{ fontSize: '14px', fontWeight: 500 }}>Mostrar solo una vez por usuario</span>
+                <span>Mostrar solo una vez por usuario</span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <label className="checkbox-label">
                 <input
                   type="checkbox"
                   checked={active}
                   onChange={(e) => setActive(e.target.checked)}
                 />
-                <span style={{ fontSize: '14px', fontWeight: 500 }}>Aviso activo (visible si en fechas)</span>
+                <span>Aviso activo (visible si en fechas)</span>
               </label>
             </div>
 
-            {(validationError || error) && (
-              <p className="form-error" style={{ margin: 0 }}>
-                {validationError || error}
-              </p>
-            )}
+            {(validationError || error) && <p className="form-error">{validationError || error}</p>}
           </div>
 
-          <div className="modal-footer" style={{ padding: '16px 20px' }}>
+          <div className="modal-footer">
             <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>

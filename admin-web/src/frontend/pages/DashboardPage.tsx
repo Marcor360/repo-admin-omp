@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { ERROR_MESSAGES } from '../constants/messages';
 import { getGlobalStats } from '../services/stats.service';
 import type { GlobalStats } from '../types/stats.types';
@@ -122,6 +124,8 @@ export function DashboardPage() {
     }
   }
 
+  useEscapeKey(() => setShowMaintenanceConfirm(false), showMaintenanceConfirm);
+
   if (loading) return <LoadingState label="Cargando resumen global..." />;
   if (error) return <ErrorState message={error} onRetry={loadStats} />;
 
@@ -201,8 +205,18 @@ export function DashboardPage() {
 
       {/* Overlay de confirmación */}
       {showMaintenanceConfirm && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="maintenance-confirm-modal">
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setShowMaintenanceConfirm(false)}
+        >
+          <div
+            className="maintenance-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar mantenimiento del sistema"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className={`maintenance-confirm-header${maintenance.active ? '' : ' warn'}`}>
               <span>{maintenance.active ? '🔓' : '🔒'}</span>
               <div>
@@ -219,20 +233,12 @@ export function DashboardPage() {
               </div>
             </div>
             <div className="maintenance-confirm-footer">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowMaintenanceConfirm(false)}
-              >
+              <Button type="button" variant="secondary" onClick={() => setShowMaintenanceConfirm(false)}>
                 Cancelar
-              </button>
-              <button
-                type="button"
-                className={maintenance.active ? 'btn-primary' : 'btn-danger'}
-                onClick={handleToggleMaintenance}
-              >
+              </Button>
+              <Button type="button" variant={maintenance.active ? 'primary' : 'danger'} onClick={handleToggleMaintenance}>
                 {maintenance.active ? 'Sí, desactivar' : `Sí, activar (máx. ${maxHours} h)`}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

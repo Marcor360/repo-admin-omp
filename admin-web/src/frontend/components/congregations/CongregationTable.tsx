@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import type { CongregationWithStats } from '../../types/congregation.types';
-import { OMP_PLANS } from '../../types/congregation.types';
+import { PLAN_COLORS, PLAN_LABELS, PLAN_USER_LIMITS, planDisplayLabel } from '../../types/congregation.types';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { CongregationStatusBadge } from './CongregationStatusBadge';
@@ -22,7 +22,7 @@ export function CongregationTable({ congregations, onEdit, onToggleStatus, onDel
 
   return (
     <div className="table-wrap">
-      <table>
+      <table className="responsive-table">
         <thead>
           <tr>
             <th>Nombre</th>
@@ -38,40 +38,38 @@ export function CongregationTable({ congregations, onEdit, onToggleStatus, onDel
         <tbody>
           {congregations.map((congregation) => (
             <tr key={congregation.id}>
-              <td>
+              <td data-label="Nombre">
                 <strong>{congregation.name}</strong>
               </td>
-              <td>
+              <td data-label="Dominio">
                 {congregation.domain ? (
-                  <span style={{fontFamily: 'monospace', fontSize: '13px', color: 'var(--primary)'}}>
-                    @{congregation.domain.replace('.com', '')}
-                  </span>
-                ) : <span style={{color: 'var(--muted)'}}>Sin dominio</span>}
+                  <span className="domain-text">@{congregation.domain.replace('.com', '')}</span>
+                ) : <span className="text-muted-sm">Sin dominio</span>}
               </td>
-              <td>
+              <td data-label="Plan">
                 {(() => {
-                  const planKey = congregation.plan ?? 'basico';
-                  const plan = OMP_PLANS[planKey];
+                  const planKey = congregation.planKey;
+                  const limit = PLAN_USER_LIMITS[planKey];
                   const used = congregation.activeUsersCount;
-                  const remaining = Math.max(0, plan.maxUsers - used);
+                  const remaining = Math.max(0, limit - used);
                   return (
                     <span
                       className="plan-badge"
-                      title={`${used}/${plan.maxUsers} usuarios activos — ${remaining} disponibles`}
-                      style={{ '--plan-color': OMP_PLANS[planKey].color } as React.CSSProperties}
+                      title={`${planDisplayLabel(planKey)} — ${used}/${limit} usuarios activos, ${remaining} disponibles`}
+                      style={{ '--plan-color': PLAN_COLORS[planKey] } as React.CSSProperties}
                     >
-                      {plan.label}
+                      {PLAN_LABELS[planKey]}
                     </span>
                   );
                 })()}
               </td>
-              <td>{[congregation.city, congregation.state, congregation.country].filter(Boolean).join(', ') || 'Sin ubicación'}</td>
-              <td>
+              <td data-label="Ubicación">{[congregation.city, congregation.state, congregation.country].filter(Boolean).join(', ') || 'Sin ubicación'}</td>
+              <td data-label="Estado">
                 <CongregationStatusBadge isActive={congregation.isActive} />
               </td>
-              <td>{congregation.activeUsersCount}</td>
-              <td>{congregation.inactiveUsersCount}</td>
-              <td>
+              <td data-label="Activos">{congregation.activeUsersCount}</td>
+              <td data-label="Inactivos">{congregation.inactiveUsersCount}</td>
+              <td data-label="Acciones">
                 <div className="row-actions">
                   <Link className="link-button" to={`/congregations/${congregation.id}`}>
                     Ver
@@ -82,6 +80,7 @@ export function CongregationTable({ congregations, onEdit, onToggleStatus, onDel
                     onClick={() => onExport(congregation)}
                     disabled={exporting}
                     title="Descargar Excel con todos los datos"
+                    aria-label={`Descargar Excel de ${congregation.name}`}
                   >
                     📥 Excel
                   </Button>
@@ -103,6 +102,7 @@ export function CongregationTable({ congregations, onEdit, onToggleStatus, onDel
                     variant="danger"
                     onClick={() => onDelete(congregation)}
                     title="Eliminar permanentemente"
+                    aria-label={`Eliminar ${congregation.name} permanentemente`}
                   >
                     Eliminar
                   </Button>

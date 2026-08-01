@@ -25,8 +25,8 @@ export async function getUsersByCongregation(
 
   const res = await apiFetch(url.toString());
   if (!res.ok) throw new Error(ERROR_MESSAGES.loadUsers);
-  const users: AppUser[] = await res.json();
-  return sortUsersByDisplayName(users).slice(0, maxResults);
+  const data: { users: AppUser[]; nextCursor: string | null } = await res.json();
+  return sortUsersByDisplayName(data.users).slice(0, maxResults);
 }
 
 export async function getActiveUsersByCongregation(congregationId: string): Promise<AppUser[]> {

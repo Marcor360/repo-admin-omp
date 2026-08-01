@@ -14,6 +14,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
+import { ProgressBar } from '../components/ui/ProgressBar';
 import { Select } from '../components/ui/Select';
 import { ERROR_MESSAGES } from '../constants/messages';
 import { getCongregationById, updateCongregationLeadership } from '../services/congregations.service';
@@ -21,7 +22,7 @@ import { exportCongregationExcel } from '../services/congregations.service';
 import { getCongregationStats } from '../services/stats.service';
 import { getActiveUsersByCongregation, getUsersByCongregation, updateUser, changeUserPassword, deleteUser } from '../services/users.service';
 import type { Congregation, CongregationLeadership } from '../types/congregation.types';
-import { OMP_PLANS } from '../types/congregation.types';
+import { PLAN_COLORS, PLAN_LABELS, PLAN_PRICES_MXN, PLAN_USER_LIMITS } from '../types/congregation.types';
 import type { CongregationStats } from '../types/stats.types';
 import type { AppUser, UpdateUserPayload, UserFilter } from '../types/user.types';
 import { formatDate } from '../utils/formatDate';
@@ -260,7 +261,7 @@ export function CongregationDetailPage() {
               <dt>Dominio</dt>
               <dd>
                 {congregation.domain ? (
-                  <span style={{fontFamily: 'monospace', color: 'var(--primary)', fontWeight: 700}}>
+                  <span className="domain-text domain-text--strong">
                     @{congregation.domain.replace('.com', '')} &mdash; admin@{congregation.domain}
                   </span>
                 ) : 'Sin dominio'}
@@ -269,18 +270,12 @@ export function CongregationDetailPage() {
             <div>
               <dt>Plan</dt>
               <dd>
-                {(() => {
-                  const planKey = congregation.plan ?? 'basico';
-                  const plan = OMP_PLANS[planKey];
-                  return (
-                    <span
-                      className="plan-badge"
-                      style={{ '--plan-color': plan.color } as React.CSSProperties}
-                    >
-                      {plan.label}
-                    </span>
-                  );
-                })()}
+                <span
+                  className="plan-badge"
+                  style={{ '--plan-color': PLAN_COLORS[congregation.planKey] } as React.CSSProperties}
+                >
+                  {PLAN_LABELS[congregation.planKey]}
+                </span>
               </dd>
             </div>
             <div>
@@ -319,38 +314,36 @@ export function CongregationDetailPage() {
 
       {/* Capacidad del plan */}
       {stats && (() => {
-        const planKey = congregation.plan ?? 'basico';
-        const plan = OMP_PLANS[planKey];
+        const planKey = congregation.planKey;
+        const limit = PLAN_USER_LIMITS[planKey];
+        const color = PLAN_COLORS[planKey];
         const used = stats.activeUsers ?? 0;
-        const pct = Math.min(100, Math.round((used / plan.maxUsers) * 100));
-        const remaining = Math.max(0, plan.maxUsers - used);
-        const barColor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : plan.color;
+        const pct = Math.min(100, Math.round((used / limit) * 100));
+        const remaining = Math.max(0, limit - used);
+        const tone = pct >= 90 ? 'danger' : pct >= 70 ? 'warning' : 'primary';
         return (
           <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div className="capacity-card-head">
               <div>
-                <h2 style={{ marginBottom: '2px' }}>Capacidad del plan</h2>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  <span className="plan-badge" style={{ '--plan-color': plan.color } as React.CSSProperties}>
-                    {plan.label}
-                  </span>
-                </p>
+                <h2 className="capacity-card-title">Capacidad del plan</h2>
+                <span className="plan-badge" style={{ '--plan-color': color } as React.CSSProperties}>
+                  {PLAN_LABELS[planKey]}
+                </span>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '1.5rem', fontWeight: 700, color: barColor }}>{remaining}</span>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8rem' }}>usuarios disponibles</p>
+              <div className="capacity-card-remaining">
+                <span className={`capacity-remaining-num capacity-remaining-num--${tone}`}>{remaining}</span>
+                <p className="text-muted-sm">usuarios disponibles</p>
               </div>
             </div>
-            <div className="plan-progress-track">
-              <div
-                className="plan-progress-bar"
-                style={{ width: `${pct}%`, background: barColor } as React.CSSProperties}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+            <ProgressBar value={pct} tone={tone} label={`${used} de ${limit} usuarios activos`} />
+            <div className="capacity-card-footer">
               <span>{used} usuarios activos</span>
-              <span>{plan.maxUsers} máximo</span>
+              <span>{limit} máximo</span>
             </div>
+            {/* Precio: deliberadamente en su propia línea, separado del cupo. */}
+            <p className="capacity-price-row">
+              Precio del plan: <strong>${PLAN_PRICES_MXN[planKey]} MXN/mes</strong>
+            </p>
           </Card>
         );
       })()}

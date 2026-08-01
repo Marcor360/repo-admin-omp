@@ -1,3 +1,4 @@
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { Button } from '../ui/Button';
 
 interface DeleteUserDialogProps {
@@ -8,20 +9,28 @@ interface DeleteUserDialogProps {
 }
 
 export function DeleteUserDialog({ user, loading, onConfirm, onCancel }: DeleteUserDialogProps) {
+  useEscapeKey(onCancel, user !== null);
+
   if (!user) return null;
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: '400px' }}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
+      <div
+        className="modal modal--sm"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Eliminar usuario"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="modal-header">
-          <h2 style={{ margin: 0 }}>Eliminar usuario</h2>
+          <h2>Eliminar usuario</h2>
         </header>
         <div className="modal-body">
           <p>
             ¿Estás seguro de que deseas eliminar permanentemente a{' '}
             <strong>{user.displayName || user.email || 'este usuario'}</strong>?
           </p>
-          <p style={{ fontSize: '0.875rem', color: 'var(--danger)', marginTop: '8px' }}>
+          <p className="form-error">
             Esta acción eliminará su documento en Firestore y su cuenta de autenticación. No se puede deshacer.
           </p>
         </div>

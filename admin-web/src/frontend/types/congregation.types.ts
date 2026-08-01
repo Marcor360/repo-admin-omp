@@ -1,29 +1,19 @@
 import type { Timestamp } from 'firebase/firestore';
+import type { BillingPlanKey } from '../../shared/contracts/billing';
 
-/** Planes disponibles para una congregación OMP */
-export type OmpPlan = 'basico' | 'intermedio' | 'completo';
+export type { BillingPlanKey } from '../../shared/contracts/billing';
+export { BILLING_PLANS, PLAN_LABELS, PLAN_PRICES_MXN, PLAN_USER_LIMITS, planDisplayLabel } from '../../shared/contracts/billing';
 
-/** Configuración de cada plan */
-export const OMP_PLANS: Record<OmpPlan, { label: string; maxUsers: number; description: string; color: string }> = {
-  basico: {
-    label: 'OMP Básico',
-    maxUsers: 70,
-    description: 'Hasta 70 usuarios activos',
-    color: '#6366f1',
-  },
-  intermedio: {
-    label: 'OMP Intermedio',
-    maxUsers: 120,
-    description: 'Hasta 120 usuarios activos',
-    color: '#0ea5e9',
-  },
-  completo: {
-    label: 'OMP Completo',
-    maxUsers: 200,
-    description: 'Hasta 200 usuarios activos',
-    color: '#10b981',
-  },
+/** Color de acento por plan — puramente visual, no viene del principal. */
+export const PLAN_COLORS: Record<BillingPlanKey, string> = {
+  omp_80: '#6366f1',
+  omp_150: '#0ea5e9',
+  omp_250: '#10b981',
 };
+
+/** Modelo propio del panel (Fase C) — no existe en OMP. isActive sigue siendo
+ * la fuente de verdad que lee el principal; lifecycleStatus es más rico. */
+export type LifecycleStatus = 'active' | 'paused' | 'blocked' | 'archived';
 
 export interface CongregationLeadership {
   secretaryUserId?: string | null;
@@ -33,8 +23,9 @@ export interface CongregationLeadership {
 export interface CongregationBilling {
   billingMode: 'paid' | 'free' | 'manual' | 'disabled';
   status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid' | 'none';
-  plan: 'basic' | 'intermediate' | 'complete' | 'custom' | 'none';
-  maxUsers: number;
+  planKey?: BillingPlanKey;
+  activeUsersLimit?: number;
+  userLimit?: number;
 
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
@@ -61,8 +52,13 @@ export interface Congregation {
   country?: string;
   circuit?: string;
   domain?: string;
-  plan?: OmpPlan;
+  /** Resuelto por el servidor: billing.planKey con fallback a campos legados. Nunca undefined. */
+  planKey: BillingPlanKey;
   isActive: boolean;
+  /** Resuelto por el servidor a partir de lifecycleStatus, con fallback a isActive. Nunca undefined. */
+  lifecycleStatus: LifecycleStatus;
+  pauseReason?: string | null;
+  blockReason?: string | null;
   leadership?: CongregationLeadership;
   billing?: CongregationBilling;
   createdAt?: Timestamp;
@@ -77,7 +73,7 @@ export interface CongregationFormInput {
   state?: string;
   country?: string;
   circuit?: string;
-  plan?: OmpPlan;
+  planKey?: BillingPlanKey;
   isActive: boolean;
 }
 

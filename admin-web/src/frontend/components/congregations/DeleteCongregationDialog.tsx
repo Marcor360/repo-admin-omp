@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { CongregationWithStats } from '../../types/congregation.types';
 
 interface DeleteCongregationDialogProps {
   congregation: CongregationWithStats;
   loading: boolean;
-  onConfirm: () => void;
+  onConfirm: (confirmName: string) => void;
   onCancel: () => void;
 }
 
@@ -32,11 +33,19 @@ export function DeleteCongregationDialog({
 }: DeleteCongregationDialogProps) {
   const [inputName, setInputName] = useState('');
   const totalUsers = (congregation.activeUsersCount ?? 0) + (congregation.inactiveUsersCount ?? 0);
-  const nameMatches = inputName.trim() === (congregation.domain || '').trim();
+  const nameMatches = inputName.trim() === congregation.name.trim();
+
+  useEscapeKey(onCancel);
 
   return (
-    <div className="credentials-modal-overlay" onClick={onCancel}>
-      <div className="delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="credentials-modal-overlay" role="presentation" onClick={onCancel}>
+      <div
+        className="delete-confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Eliminar congregación permanentemente"
+        onClick={(e) => e.stopPropagation()}
+      >
 
         {/* Header rojo */}
         <div className="delete-confirm-header">
@@ -77,7 +86,7 @@ export function DeleteCongregationDialog({
           {/* Campo de confirmación por nombre */}
           <div className="delete-confirm-input-group">
             <label htmlFor="delete-confirm-input">
-              Escribe <strong>{congregation.domain}</strong> para confirmar la eliminación:
+              Escribe <strong>{congregation.name}</strong> para confirmar la eliminación:
             </label>
             <input
               id="delete-confirm-input"
@@ -85,7 +94,7 @@ export function DeleteCongregationDialog({
               className="input"
               value={inputName}
               onChange={(e) => setInputName(e.target.value)}
-              placeholder={congregation.domain}
+              placeholder={congregation.name}
               autoComplete="off"
               disabled={loading}
             />
@@ -105,7 +114,7 @@ export function DeleteCongregationDialog({
           <button
             type="button"
             className="button button-danger"
-            onClick={onConfirm}
+            onClick={() => onConfirm(inputName.trim())}
             disabled={!nameMatches || loading}
           >
             {loading ? 'Eliminando todo...' : 'Eliminar todo permanentemente'}

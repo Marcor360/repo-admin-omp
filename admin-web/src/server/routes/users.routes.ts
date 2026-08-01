@@ -1,30 +1,41 @@
 import { Router } from 'express';
 import { requireOwner } from '../middleware/requireOwner';
 import { db, adminAuth } from '../firebaseAdmin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { parseOrRespond } from '../utils/validate';
+import { congregationIdParamSchema, usersQuerySchema } from '../schemas/congregationDetail.schemas';
 
 const router = Router({ mergeParams: true });
 
-// GET /api/congregations/:id/users
+// GET /api/congregations/:id/users — paginado con cursor (ver usersQuerySchema).
 router.get('/', requireOwner, async (req, res) => {
+  const params = parseOrRespond(congregationIdParamSchema, req.params, res);
+  if (!params) return;
+  const query = parseOrRespond(usersQuerySchema, req.query, res);
+  if (!query) return;
+
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
-    const congregationId = req.params.id as string;
-    const { status, role } = req.query;
+    const congregationId = params.id;
 
-    let query: FirebaseFirestore.Query = db.collection('users').where('congregationId', '==', congregationId);
+    let fsQuery: FirebaseFirestore.Query = db.collection('users').where('congregationId', '==', congregationId);
 
-    if (status === 'active') {
-      query = query.where('isActive', '==', true);
-    } else if (status === 'inactive') {
-      query = query.where('isActive', '==', false);
+    if (query.status === 'active') {
+      fsQuery = fsQuery.where('isActive', '==', true);
+    } else if (query.status === 'inactive') {
+      fsQuery = fsQuery.where('isActive', '==', false);
     }
 
-    if (role) {
-      query = query.where('role', '==', role);
+    if (query.role) {
+      fsQuery = fsQuery.where('role', '==', query.role);
     }
 
-    const snapshot = await query.get();
+    fsQuery = fsQuery.orderBy(FieldPath.documentId()).limit(query.limit);
+    if (query.cursor) {
+      fsQuery = fsQuery.startAfter(query.cursor);
+    }
+
+    const snapshot = await fsQuery.get();
     const users = snapshot.docs.map(doc => {
       const data = doc.data();
       return {
@@ -55,7 +66,8 @@ router.get('/', requireOwner, async (req, res) => {
       };
     });
 
-    res.json(users);
+    const nextCursor = snapshot.docs.length === query.limit ? snapshot.docs[snapshot.docs.length - 1].id : null;
+    res.json({ users, nextCursor });
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ error: 'Error fetching users' });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { VALIDATION_MESSAGES } from '../../constants/messages';
-import type { Congregation, CongregationFormInput, OmpPlan } from '../../types/congregation.types';
-import { OMP_PLANS } from '../../types/congregation.types';
+import type { BillingPlanKey, Congregation, CongregationFormInput } from '../../types/congregation.types';
+import { BILLING_PLANS, PLAN_COLORS, PLAN_LABELS, PLAN_PRICES_MXN, PLAN_USER_LIMITS } from '../../types/congregation.types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
@@ -21,7 +21,7 @@ const initialForm: CongregationFormInput = {
   state: '',
   country: '',
   circuit: '',
-  plan: 'basico',
+  planKey: 'omp_80',
   isActive: true,
 };
 
@@ -46,7 +46,7 @@ export function CongregationFormModal({
         state: congregation.state ?? '',
         country: congregation.country ?? '',
         circuit: congregation.circuit ?? '',
-        plan: congregation.plan ?? 'basico',
+        planKey: congregation.planKey ?? 'omp_80',
         isActive: congregation.isActive,
       });
     } else {
@@ -119,23 +119,24 @@ export function CongregationFormModal({
             {isEditing ? 'Cambiar plan' : 'Plan de la congregación'}
           </p>
           <div className="plan-cards">
-            {(Object.entries(OMP_PLANS) as [OmpPlan, typeof OMP_PLANS[OmpPlan]][]).map(([key, plan]) => {
-              const isSelected = form.plan === key;
+            {BILLING_PLANS.map((key: BillingPlanKey) => {
+              const isSelected = form.planKey === key;
               return (
                 <button
                   key={key}
                   type="button"
                   className={`plan-card${isSelected ? ' plan-card--selected' : ''}`}
-                  style={{ '--plan-color': plan.color } as React.CSSProperties}
-                  onClick={() => setForm((current) => ({ ...current, plan: key }))}
+                  style={{ '--plan-color': PLAN_COLORS[key] } as React.CSSProperties}
+                  onClick={() => setForm((current) => ({ ...current, planKey: key }))}
                 >
                   <span className="plan-card-dot" />
-                  <strong className="plan-card-title">{plan.label}</strong>
-                  <span className="plan-card-desc">{plan.description}</span>
+                  <strong className="plan-card-title">{PLAN_LABELS[key]}</strong>
+                  <span className="plan-card-desc">Hasta {PLAN_USER_LIMITS[key]} usuarios activos</span>
                   <span className="plan-card-users">
-                    <span className="plan-card-num">{plan.maxUsers}</span>
+                    <span className="plan-card-num">{PLAN_USER_LIMITS[key]}</span>
                     <span> usuarios máx.</span>
                   </span>
+                  <span className="plan-card-price">${PLAN_PRICES_MXN[key]} MXN/mes</span>
                 </button>
               );
             })}

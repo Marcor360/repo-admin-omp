@@ -4,10 +4,10 @@ dotenv.config();
 
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
+import { getAuth, type Auth } from 'firebase-admin/auth';
 
 let db: FirebaseFirestore.Firestore | null = null;
-let adminAuth: any = null;
+let adminAuth: Auth | null = null;
 
 try {
   if (!getApps().length) {

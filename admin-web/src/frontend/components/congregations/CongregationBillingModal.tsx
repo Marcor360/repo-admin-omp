@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { Congregation } from '../../types/congregation.types';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
+import type { BillingPlanKey, Congregation } from '../../types/congregation.types';
+import { BILLING_PLANS, planDisplayLabel } from '../../types/congregation.types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
@@ -23,8 +25,7 @@ export function CongregationBillingModal({
 }: CongregationBillingModalProps) {
   const [billingMode, setBillingMode] = useState<'paid' | 'free' | 'manual' | 'disabled'>('disabled');
   const [status, setStatus] = useState('none');
-  const [plan, setPlan] = useState('none');
-  const [maxUsers, setMaxUsers] = useState(0);
+  const [planKey, setPlanKey] = useState<BillingPlanKey>('omp_80');
   const [exemptReason, setExemptReason] = useState('');
   const [exemptUntil, setExemptUntil] = useState('');
   
@@ -37,8 +38,7 @@ export function CongregationBillingModal({
       const b = congregation.billing;
       setBillingMode(b?.billingMode || 'disabled');
       setStatus(b?.status || 'none');
-      setPlan(b?.plan || 'none');
-      setMaxUsers(b?.maxUsers || 0);
+      setPlanKey(b?.planKey || 'omp_80');
       setExemptReason(b?.exemptReason || '');
       
       if (b?.exemptUntil && (b.exemptUntil as any).toDate) {
@@ -54,6 +54,8 @@ export function CongregationBillingModal({
     }
   }, [congregation, isOpen]);
 
+  useEscapeKey(onClose, isOpen);
+
   if (!isOpen || !congregation) return null;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -61,8 +63,7 @@ export function CongregationBillingModal({
     await onSave(congregation!.id, {
       billingMode,
       status,
-      plan,
-      maxUsers: Number(maxUsers),
+      planKey,
       exemptReason,
       exemptUntil: exemptUntil ? new Date(exemptUntil).toISOString() : null,
     });
@@ -71,24 +72,21 @@ export function CongregationBillingModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className="modal"
+        className="modal modal--md"
         role="dialog"
         aria-modal="true"
         aria-label="Configuración de Facturación"
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ maxWidth: '600px' }}
       >
         <header className="modal-header">
-          <div>
-            <h2 style={{ margin: 0 }}>💳 Facturación: {congregation.name}</h2>
-          </div>
+          <h2>💳 Facturación: {congregation.name}</h2>
           <Button variant="ghost" type="button" onClick={onClose} aria-label="Cerrar">
             ×
           </Button>
         </header>
 
         <form onSubmit={handleSubmit}>
-          <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          <div className="modal-body modal-body--scroll">
             <div className="form-grid">
               <Select
                 id="billingMode"
@@ -121,24 +119,9 @@ export function CongregationBillingModal({
               <Select
                 id="plan"
                 label="Plan asignado"
-                value={plan}
-                onChange={(e) => setPlan(e.target.value)}
-                options={[
-                  { label: 'Ninguno', value: 'none' },
-                  { label: 'Básico', value: 'basic' },
-                  { label: 'Intermedio', value: 'intermediate' },
-                  { label: 'Completo', value: 'complete' },
-                  { label: 'Personalizado', value: 'custom' },
-                ]}
-              />
-
-              <Input
-                id="maxUsers"
-                label="Usuarios máximos permitidos"
-                type="number"
-                value={maxUsers}
-                onChange={(e) => setMaxUsers(Number(e.target.value))}
-                min={0}
+                value={planKey}
+                onChange={(e) => setPlanKey(e.target.value as BillingPlanKey)}
+                options={BILLING_PLANS.map((key) => ({ label: planDisplayLabel(key), value: key }))}
               />
 
               {(billingMode === 'free' || billingMode === 'manual') && (
@@ -161,16 +144,16 @@ export function CongregationBillingModal({
               )}
             </div>
 
-            <div style={{ marginTop: '24px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '0.9rem' }}>
-              <h4 style={{ margin: '0 0 8px 0', color: 'var(--muted)' }}>Datos de Stripe (Solo lectura)</h4>
-              <p style={{ margin: '4px 0' }}><strong>Customer ID:</strong> {stripeCustomerId || 'No asignado'}</p>
-              <p style={{ margin: '4px 0' }}><strong>Subscription ID:</strong> {stripeSubscriptionId || 'No asignado'}</p>
+            <div className="readonly-panel">
+              <h4>Datos de Stripe (Solo lectura)</h4>
+              <p><strong>Customer ID:</strong> {stripeCustomerId || 'No asignado'}</p>
+              <p><strong>Subscription ID:</strong> {stripeSubscriptionId || 'No asignado'}</p>
             </div>
 
-            {error && <p className="form-error" style={{ marginTop: '12px' }}>{error}</p>}
+            {error && <p className="form-error">{error}</p>}
           </div>
 
-          <div className="modal-footer" style={{ padding: '18px 20px' }}>
+          <div className="modal-footer">
             <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
