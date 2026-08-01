@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/useAuth';
 import { Button } from '../components/ui/Button';
 import { useSystemAnnouncements } from '../hooks/useSystemAnnouncements';

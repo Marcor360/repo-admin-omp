@@ -10,7 +10,7 @@ const router = Router();
 // GET /api/congregations
 router.get('/', requireIapAuth, async (req, res) => {
   try {
-    if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado. Falta serviceAccountKey.json o gcloud auth.' });
+    if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado. Revisa las variables FIREBASE_* o Application Default Credentials.' });
     const snapshot = await db.collection('congregations').get();
     const congregationsPromises = snapshot.docs.map(async doc => {
       const id = doc.id;

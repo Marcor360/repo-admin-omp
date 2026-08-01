@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { useAuth } from '../auth/useAuth';
 import { CongregationStatsCards } from '../components/congregations/CongregationStatsCards';
 import { CongregationStatusBadge } from '../components/congregations/CongregationStatusBadge';

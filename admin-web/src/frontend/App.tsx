@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router';
 import { RequireSuperAdmin } from './auth/RequireSuperAdmin';
 import { AdminLayout } from './layouts/AdminLayout';
 import { CongregationDetailPage } from './pages/CongregationDetailPage';

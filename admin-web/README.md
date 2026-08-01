@@ -21,7 +21,15 @@ Esta aplicación ha sido refactorizada para utilizar una arquitectura **Full-Sta
    ```env
    VITE_OWNER_EMAIL=tu_correo@gmail.com
    ```
-   *Nota: En desarrollo local, necesitas tener las credenciales de Firebase configuradas a través de Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`).*
+   Para Firebase Admin, configura en `.env.local` las variables `FIREBASE_PROJECT_ID`,
+   `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY` usando una clave nueva. La clave
+   privada debe conservar sus saltos de línea como `\\n`, tal como se muestra en
+   `.env.example`. Las demás propiedades de la cuenta de servicio también tienen
+   su variable `FIREBASE_*` correspondiente en la plantilla.
+
+   Como alternativa, el backend admite Application Default Credentials
+   (`GOOGLE_APPLICATION_CREDENTIALS`) cuando no se define ninguna credencial
+   mediante variables `FIREBASE_*`.
 
 3. Ejecutar en desarrollo:
    ```bash

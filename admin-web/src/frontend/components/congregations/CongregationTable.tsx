@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { CongregationWithStats } from '../../types/congregation.types';
 import { OMP_PLANS } from '../../types/congregation.types';
 import { Button } from '../ui/Button';

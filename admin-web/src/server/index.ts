@@ -11,6 +11,7 @@ import systemRoutes from './routes/system.routes';
 import announcementsRoutes from './routes/announcements.routes';
 
 dotenv.config({ path: '.env.local' });
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
