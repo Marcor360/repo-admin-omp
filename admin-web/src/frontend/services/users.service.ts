@@ -1,5 +1,7 @@
 import type { AppUser, UpdateUserPayload, UserFilter } from '../types/user.types';
 import { getUserDisplayName } from '../utils/userDisplay';
+import { ERROR_MESSAGES } from '../constants/messages';
+import { apiFetch } from '../lib/apiClient';
 
 function sortUsersByDisplayName(users: AppUser[]): AppUser[] {
   return [...users].sort((a, b) => getUserDisplayName(a).localeCompare(getUserDisplayName(b), 'es'));
@@ -21,8 +23,8 @@ export async function getUsersByCongregation(
     url.searchParams.append('role', 'user');
   }
 
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error('Error fetching users');
+  const res = await apiFetch(url.toString());
+  if (!res.ok) throw new Error(ERROR_MESSAGES.loadUsers);
   const users: AppUser[] = await res.json();
   return sortUsersByDisplayName(users).slice(0, maxResults);
 }
@@ -49,14 +51,14 @@ export async function updateUser(
   userId: string,
   payload: UpdateUserPayload,
 ): Promise<AppUser> {
-  const res = await fetch(`/api/congregations/${congregationId}/users/${userId}`, {
+  const res = await apiFetch(`/api/congregations/${congregationId}/users/${userId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Error actualizando usuario (${res.status})`);
+    throw new Error(body.error || ERROR_MESSAGES.updateUser);
   }
   return res.json();
 }
@@ -66,24 +68,24 @@ export async function changeUserPassword(
   userId: string,
   password: string,
 ): Promise<void> {
-  const res = await fetch(`/api/congregations/${congregationId}/users/${userId}/password`, {
+  const res = await apiFetch(`/api/congregations/${congregationId}/users/${userId}/password`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Error cambiando contraseña (${res.status})`);
+    throw new Error(body.error || ERROR_MESSAGES.changePassword);
   }
 }
 
 export async function deleteUser(congregationId: string, userId: string): Promise<void> {
-  const res = await fetch(`/api/congregations/${congregationId}/users/${userId}`, {
+  const res = await apiFetch(`/api/congregations/${congregationId}/users/${userId}`, {
     method: 'DELETE',
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Error eliminando usuario (${res.status})`);
+    throw new Error(body.error || ERROR_MESSAGES.deleteUser);
   }
 }
 

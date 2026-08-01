@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VALIDATION_MESSAGES } from '../../constants/messages';
 import type { Congregation, CongregationFormInput, OmpPlan } from '../../types/congregation.types';
 import { OMP_PLANS } from '../../types/congregation.types';
 import { Button } from '../ui/Button';
@@ -60,7 +61,7 @@ export function CongregationFormModal({
     setError('');
 
     if (form.name.trim().length < 3) {
-      setError('El nombre debe tener mínimo 3 caracteres.');
+      setError(VALIDATION_MESSAGES.congregationNameLength);
       return;
     }
 

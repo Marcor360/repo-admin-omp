@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
+import { ERROR_MESSAGES } from '../constants/messages';
 import {
   createCongregation,
   deleteCongregation,
@@ -56,7 +57,7 @@ export function CongregationsPage() {
       const baseCongregations = await getCongregations();
       setCongregations(baseCongregations as CongregationWithStats[]);
     } catch (err: any) {
-      setError(err.message || 'Error cargando congregaciones.');
+      setError(err.message || ERROR_MESSAGES.loadCongregations);
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ export function CongregationsPage() {
       setIsFormOpen(false);
       await loadCongregations();
     } catch (err: any) {
-      setError(err.message || 'Error guardando congregación.');
+      setError(err.message || ERROR_MESSAGES.saveCongregation);
     } finally {
       setSaving(false);
     }
@@ -127,7 +128,7 @@ export function CongregationsPage() {
       setDeactivateTarget(null);
       await loadCongregations();
     } catch (err: any) {
-      setError(err.message || 'Error desactivando congregación.');
+      setError(err.message || ERROR_MESSAGES.deactivateCongregation);
     } finally {
       setSaving(false);
     }
@@ -147,7 +148,7 @@ export function CongregationsPage() {
       setActivateTarget(null);
       await loadCongregations();
     } catch (err: any) {
-      setError(err.message || 'Error activando congregación.');
+      setError(err.message || ERROR_MESSAGES.activateCongregation);
     } finally {
       setSaving(false);
     }
@@ -159,7 +160,7 @@ export function CongregationsPage() {
     try {
       await exportCongregationExcel(congregation.id, congregation.name);
     } catch (err: any) {
-      setError(err.message || 'Error exportando datos.');
+      setError(err.message || ERROR_MESSAGES.exportData);
     } finally {
       setExporting(false);
     }
@@ -181,7 +182,7 @@ export function CongregationsPage() {
       setNotice(`Congregación "${result.congregationName}" eliminada. Se descargó el respaldo Excel con todos los datos. Usuarios eliminados: ${result.summary.users ?? 0}.`);
       await loadCongregations();
     } catch (err: any) {
-      setError(err.message || 'Error eliminando congregación.');
+      setError(err.message || ERROR_MESSAGES.deleteCongregation);
     } finally {
       setDeleting(false);
     }
@@ -197,7 +198,7 @@ export function CongregationsPage() {
       setBillingTarget(null);
       await loadCongregations();
     } catch (err: any) {
-      setError(err.message || 'Error actualizando facturación.');
+      setError(err.message || ERROR_MESSAGES.updateBilling);
     } finally {
       setSaving(false);
     }

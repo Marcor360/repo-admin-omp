@@ -4,5 +4,6 @@ dist
 .env.local
 .env.*.local
 serviceAccountKey.json
+*serviceAccount*.json
 .DS_Store
 .vite

@@ -1,3 +1,6 @@
+import { ERROR_MESSAGES } from '../constants/messages';
+import { apiFetch } from '../lib/apiClient';
+
 export interface MaintenanceStatus {
   active: boolean;
   activatedAt?: string;
@@ -7,10 +10,10 @@ export interface MaintenanceStatus {
 }
 
 export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
-  const res = await fetch('/api/system/maintenance');
+  const res = await apiFetch('/api/system/maintenance');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Error obteniendo estado de mantenimiento');
+    throw new Error(data.error || ERROR_MESSAGES.loadMaintenance);
   }
   return res.json();
 }
@@ -18,12 +21,12 @@ export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
 export async function setMaintenanceMode(
   active: boolean,
 ): Promise<{ success: boolean; affected?: number; restored?: number; message: string }> {
-  const res = await fetch('/api/system/maintenance', {
+  const res = await apiFetch('/api/system/maintenance', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ active }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error gestionando mantenimiento');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateMaintenance);
   return data;
 }

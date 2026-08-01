@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VALIDATION_MESSAGES } from '../../constants/messages';
 import type { AppUser } from '../../types/user.types';
 import { getUserDisplayName } from '../../utils/userDisplay';
 import { Button } from '../ui/Button';
@@ -60,11 +61,11 @@ export function ChangePasswordModal({
     setValidationError('');
 
     if (password.length < 8) {
-      setValidationError('La contraseña debe tener al menos 8 caracteres.');
+      setValidationError(VALIDATION_MESSAGES.passwordLength);
       return;
     }
     if (password !== confirm) {
-      setValidationError('Las contraseñas no coinciden.');
+      setValidationError(VALIDATION_MESSAGES.passwordsMismatch);
       return;
     }
 

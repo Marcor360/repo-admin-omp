@@ -1,5 +1,14 @@
 import { createContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { AuthContextValue, IapUser } from '../types/auth.types';
+import {
+  GoogleAuthProvider,
+  onIdTokenChanged,
+  signInWithPopup,
+  signOut,
+  type User,
+} from 'firebase/auth';
+import { auth } from '../firebase/firebase';
+import { apiFetch } from '../lib/apiClient';
+import type { AuthContextValue, OwnerUser } from '../types/auth.types';
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -8,54 +17,55 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState<IapUser | null>(null);
+  const [user, setUser] = useState<OwnerUser | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchMe() {
-      try {
-        const response = await fetch('/api/me');
-        if (response.ok) {
-          const data = await response.json();
-          if (!cancelled) {
-            setUser({ email: data.email });
-          }
-        } else {
-          if (!cancelled) setUser(null);
-        }
-      } catch (error) {
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setAuthReady(true);
-        }
+    const unsubscribe = onIdTokenChanged(auth, async (firebaseUser: User | null) => {
+      if (!firebaseUser) {
+        setUser(null);
+        setIsSuperAdmin(false);
+        setLoading(false);
+        setAuthReady(true);
+        return;
       }
-    }
 
-    fetchMe();
+      setUser({ email: firebaseUser.email ?? '' });
 
-    return () => {
-      cancelled = true;
-    };
+      // isSuperAdmin nunca se deriva de un claim leído en el cliente: solo cuenta
+      // que el servidor haya aceptado el token (allowlist + claim + provider).
+      try {
+        const response = await apiFetch('/api/me');
+        setIsSuperAdmin(response.ok);
+      } catch {
+        setIsSuperAdmin(false);
+      } finally {
+        setLoading(false);
+        setAuthReady(true);
+      }
+    });
+
+    return unsubscribe;
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      isSuperAdmin: Boolean(user), // Si IAP lo dejó pasar, es super admin por definición
+      isSuperAdmin,
       loading,
       authReady,
-      login: async () => {}, // No-op, IAP maneja el login
-      loginWithGoogle: async () => {}, // No-op
+      loginWithGoogle: async () => {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        await signInWithPopup(auth, provider);
+      },
       logout: async () => {
-        window.location.href = '/_gcp_iap/clear_login_cookie';
+        await signOut(auth);
       },
     }),
-    [authReady, loading, user],
+    [authReady, isSuperAdmin, loading, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

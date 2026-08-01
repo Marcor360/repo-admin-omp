@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
+import { ERROR_MESSAGES } from '../constants/messages';
 import { createSystemAnnouncement, deleteSystemAnnouncement, getSystemAnnouncements, updateSystemAnnouncement } from '../services/announcements.service';
 import type { CreateAnnouncementPayload, SystemAnnouncement, UpdateAnnouncementPayload } from '../types/announcement.types';
 
@@ -26,7 +27,7 @@ export function AnnouncementsPage() {
       const data = await getSystemAnnouncements();
       setAnnouncements(data);
     } catch (err: any) {
-      setError(err.message || 'Error al cargar los avisos');
+      setError(err.message || ERROR_MESSAGES.loadAnnouncements);
     } finally {
       setLoading(false);
     }
@@ -63,7 +64,7 @@ export function AnnouncementsPage() {
       setTimeout(() => setNotice(''), 4000);
       void loadAnnouncements();
     } catch (err: any) {
-      setSaveError(err.message || 'Error guardando aviso');
+      setSaveError(err.message || ERROR_MESSAGES.saveAnnouncement);
     } finally {
       setSaving(false);
     }
@@ -76,7 +77,7 @@ export function AnnouncementsPage() {
       setTimeout(() => setNotice(''), 4000);
       void loadAnnouncements();
     } catch (err: any) {
-      setError(err.message || 'Error eliminando aviso');
+      setError(err.message || ERROR_MESSAGES.deleteAnnouncement);
     }
   }
 

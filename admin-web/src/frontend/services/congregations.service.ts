@@ -3,22 +3,24 @@ import type {
   CongregationFormInput,
   CongregationLeadership,
 } from '../types/congregation.types';
+import { ERROR_MESSAGES } from '../constants/messages';
+import { apiFetch } from '../lib/apiClient';
 
 export async function getCongregations(): Promise<Congregation[]> {
-  const res = await fetch('/api/congregations');
+  const res = await apiFetch('/api/congregations');
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Error fetching congregations');
+    throw new Error(errorData.error || ERROR_MESSAGES.loadCongregations);
   }
   return res.json();
 }
 
 export async function getCongregationById(id: string): Promise<Congregation | null> {
-  const res = await fetch(`/api/congregations/${id}`);
+  const res = await apiFetch(`/api/congregations/${id}`);
   if (!res.ok) {
     if (res.status === 404) return null;
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Error fetching congregation');
+    throw new Error(errorData.error || ERROR_MESSAGES.loadCongregation);
   }
   return res.json();
 }
@@ -33,14 +35,14 @@ export interface CreateCongregationResult {
 }
 
 export async function createCongregation(input: CongregationFormInput, _superAdminUid?: string): Promise<CreateCongregationResult> {
-  const res = await fetch('/api/congregations', {
+  const res = await apiFetch('/api/congregations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error creating congregation');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.createCongregation);
   
   return {
     congregationId: data.congregation?.id || data.id,
@@ -53,28 +55,28 @@ export async function updateCongregation(
   input: CongregationFormInput,
   _superAdminUid?: string,
 ): Promise<void> {
-  const res = await fetch(`/api/congregations/${id}`, {
+  const res = await apiFetch(`/api/congregations/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error updating congregation');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateCongregation);
 }
 
 export async function updateCongregationBilling(
   id: string,
   billingData: any,
 ): Promise<void> {
-  const res = await fetch(`/api/congregations/${id}/billing`, {
+  const res = await apiFetch(`/api/congregations/${id}/billing`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(billingData),
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error updating billing');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateBilling);
 }
 
 export async function setCongregationActiveStatus(
@@ -82,14 +84,14 @@ export async function setCongregationActiveStatus(
   isActive: boolean,
   reason?: string,
 ): Promise<void> {
-  const res = await fetch(`/api/congregations/${id}/status`, {
+  const res = await apiFetch(`/api/congregations/${id}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ isActive, reason }),
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error updating status');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateStatus);
 }
 
 export async function updateCongregationLeadership(
@@ -97,7 +99,7 @@ export async function updateCongregationLeadership(
   leadership: CongregationLeadership,
   _superAdminUid?: string,
 ): Promise<void> {
-  const res = await fetch(`/api/congregations/${id}/leadership`, {
+  const res = await apiFetch(`/api/congregations/${id}/leadership`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -107,13 +109,13 @@ export async function updateCongregationLeadership(
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error updating leadership');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.updateLeadership);
 }
 
 export async function deleteCongregation(id: string): Promise<{ congregationName: string; summary: Record<string, number> }> {
-  const res = await fetch(`/api/congregations/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`/api/congregations/${id}`, { method: 'DELETE' });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Error eliminando congregación');
+  if (!res.ok) throw new Error(data.error || ERROR_MESSAGES.deleteCongregation);
   return { congregationName: data.congregationName, summary: data.summary };
 }
 
@@ -122,10 +124,10 @@ export async function deleteCongregation(id: string): Promise<{ congregationName
  * hoja "Congregación" (datos generales) y hoja "Usuarios" (todos los usuarios).
  */
 export async function exportCongregationExcel(id: string, name: string): Promise<void> {
-  const res = await fetch(`/api/congregations/${id}/export`);
+  const res = await apiFetch(`/api/congregations/${id}/export`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Error exportando datos');
+    throw new Error(data.error || ERROR_MESSAGES.exportData);
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);

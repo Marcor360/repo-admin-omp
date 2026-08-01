@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 
 const router = Router();
 
-router.get('/', requireIapAuth, (req, res) => {
+router.get('/', requireOwner, (req, res) => {
   res.json({
     email: req.userEmail,
     authenticated: true

@@ -6,7 +6,7 @@ export function NotAuthorizedPage() {
     <main className="center-page">
       <section className="center-card">
         <h1>Acceso no autorizado</h1>
-        <p>No tienes permisos para acceder a esta herramienta administrativa.</p>
+        <p>Esta cuenta no tiene acceso al panel.</p>
         <Link to="/login">
           <Button type="button" variant="secondary">
             Volver al login

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VALIDATION_MESSAGES } from '../../constants/messages';
 import type { AppUser, UpdateUserPayload } from '../../types/user.types';
 import { getUserDisplayName } from '../../utils/userDisplay';
 import { Button } from '../ui/Button';
@@ -61,11 +62,11 @@ export function EditUserModal({
     if (!user) return;
 
     if (!firstName.trim()) {
-      setValidationError('El nombre es requerido.');
+      setValidationError(VALIDATION_MESSAGES.firstNameRequired);
       return;
     }
     if (!lastName.trim()) {
-      setValidationError('El apellido paterno es requerido.');
+      setValidationError(VALIDATION_MESSAGES.lastNameRequired);
       return;
     }
 

@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 import { db } from '../firebaseAdmin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 const router = Router();
 
 // GET /api/announcements
-router.get('/', requireIapAuth, async (req, res) => {
+router.get('/', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     
@@ -28,7 +28,7 @@ router.get('/', requireIapAuth, async (req, res) => {
 });
 
 // POST /api/announcements
-router.post('/', requireIapAuth, async (req, res) => {
+router.post('/', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -64,7 +64,7 @@ router.post('/', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/announcements/:id
-router.patch('/:id', requireIapAuth, async (req, res) => {
+router.patch('/:id', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -104,7 +104,7 @@ router.patch('/:id', requireIapAuth, async (req, res) => {
 });
 
 // DELETE /api/announcements/:id
-router.delete('/:id', requireIapAuth, async (req, res) => {
+router.delete('/:id', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 

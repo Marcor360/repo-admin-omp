@@ -15,6 +15,7 @@ import { Card } from '../components/ui/Card';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
 import { Select } from '../components/ui/Select';
+import { ERROR_MESSAGES } from '../constants/messages';
 import { getCongregationById, updateCongregationLeadership } from '../services/congregations.service';
 import { exportCongregationExcel } from '../services/congregations.service';
 import { getCongregationStats } from '../services/stats.service';
@@ -66,7 +67,7 @@ export function CongregationDetailPage() {
     try {
       const congregationResponse = await getCongregationById(congregationId);
       if (!congregationResponse) {
-        setError('No se encontró la congregación.');
+        setError(ERROR_MESSAGES.congregationNotFound);
         return;
       }
 
@@ -87,7 +88,7 @@ export function CongregationDetailPage() {
       setSecretary(secretaryResponse);
       setCoordinator(coordinatorResponse);
     } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+      setError(err.message || ERROR_MESSAGES.unexpected);
     } finally {
       setLoading(false);
     }
@@ -95,6 +96,8 @@ export function CongregationDetailPage() {
 
   useEffect(() => {
     void loadDetail(filter);
+  // The filter is refreshed explicitly by handleFilterChange.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [congregationId]);
 
   async function handleFilterChange(nextFilter: UserFilter) {
@@ -107,7 +110,7 @@ export function CongregationDetailPage() {
       const response = await getUsersByCongregation(congregationId, nextFilter);
       setUsers(response);
     } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+      setError(err.message || ERROR_MESSAGES.unexpected);
     } finally {
       setLoading(false);
     }
@@ -125,7 +128,7 @@ export function CongregationDetailPage() {
       setNotice('Liderazgo actualizado correctamente.');
       await loadDetail(filter);
     } catch (err: any) {
-      setError(err.message || 'Ocurrió un error inesperado.');
+      setError(err.message || ERROR_MESSAGES.unexpected);
     } finally {
       setSavingLeadership(false);
     }
@@ -149,7 +152,7 @@ export function CongregationDetailPage() {
       setNotice(`Usuario "${updated.displayName ?? userId}" actualizado correctamente.`);
       setTimeout(() => setNotice(''), 4000);
     } catch (err: any) {
-      setEditUserError(err.message || 'Error actualizando usuario.');
+      setEditUserError(err.message || ERROR_MESSAGES.updateUser);
     } finally {
       setSavingUser(false);
     }
@@ -171,7 +174,7 @@ export function CongregationDetailPage() {
       setNotice(`Contraseña de "${target ? (target.displayName ?? target.email ?? userId) : userId}" actualizada correctamente.`);
       setTimeout(() => setNotice(''), 4000);
     } catch (err: any) {
-      setPasswordError(err.message || 'Error cambiando contraseña.');
+      setPasswordError(err.message || ERROR_MESSAGES.changePassword);
     } finally {
       setSavingPassword(false);
     }
@@ -190,7 +193,7 @@ export function CongregationDetailPage() {
       setTimeout(() => setNotice(''), 4000);
       setUserToDelete(null);
     } catch (err: any) {
-      setError(err.message || 'Error eliminando usuario.');
+      setError(err.message || ERROR_MESSAGES.deleteUser);
     } finally {
       setDeletingUser(false);
     }
@@ -203,7 +206,7 @@ export function CongregationDetailPage() {
     try {
       await exportCongregationExcel(congregationId, congregation.name);
     } catch (err: any) {
-      setError(err.message || 'Error exportando datos.');
+      setError(err.message || ERROR_MESSAGES.exportData);
     } finally {
       setExporting(false);
     }
@@ -211,7 +214,7 @@ export function CongregationDetailPage() {
 
   if (loading && !congregation) return <LoadingState label="Cargando detalle de congregación..." />;
   if (error && !congregation) return <ErrorState message={error} onRetry={() => loadDetail(filter)} />;
-  if (!congregation) return <ErrorState message="No se encontró la congregación." />;
+  if (!congregation) return <ErrorState message={ERROR_MESSAGES.congregationNotFound} />;
 
   return (
     <section className="page-stack">

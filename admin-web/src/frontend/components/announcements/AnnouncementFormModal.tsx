@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { VALIDATION_MESSAGES } from '../../constants/messages';
 import type { AnnouncementTarget, AnnouncementType, CreateAnnouncementPayload, SystemAnnouncement, UpdateAnnouncementPayload } from '../../types/announcement.types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -75,18 +76,18 @@ export function AnnouncementFormModal({
     setValidationError('');
 
     if (!title.trim() || !message.trim() || !startsAt) {
-      setValidationError('Título, mensaje y fecha de inicio son obligatorios.');
+      setValidationError(VALIDATION_MESSAGES.announcementRequired);
       return;
     }
 
     if (endsAt && new Date(endsAt) <= new Date(startsAt)) {
-      setValidationError('La fecha de fin debe ser posterior a la fecha de inicio.');
+      setValidationError(VALIDATION_MESSAGES.announcementEndDate);
       return;
     }
 
     const parsedPriority = parseInt(priority, 10) || 0;
     if (parsedPriority < 0 || parsedPriority > 10) {
-      setValidationError('La prioridad debe ser un número entre 0 y 10.');
+      setValidationError(VALIDATION_MESSAGES.announcementPriority);
       return;
     }
 

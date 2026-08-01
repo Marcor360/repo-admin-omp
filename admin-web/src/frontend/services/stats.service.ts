@@ -1,11 +1,13 @@
 import type { CongregationStats, GlobalStats } from '../types/stats.types';
 import { getUsersByCongregation } from './users.service';
+import { ERROR_MESSAGES } from '../constants/messages';
+import { apiFetch } from '../lib/apiClient';
 
 export async function getGlobalStats(): Promise<GlobalStats> {
-  const res = await fetch('/api/dashboard/stats');
+  const res = await apiFetch('/api/dashboard/stats');
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Error fetching global stats');
+    throw new Error(errorData.error || ERROR_MESSAGES.loadStats);
   }
   return res.json();
 }

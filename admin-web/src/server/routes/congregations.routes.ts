@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 import { db, adminAuth } from '../firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkAndAutoDeactivate } from './system.routes';
@@ -8,7 +8,7 @@ import { checkAndAutoDeactivate } from './system.routes';
 const router = Router();
 
 // GET /api/congregations
-router.get('/', requireIapAuth, async (req, res) => {
+router.get('/', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado. Revisa las variables FIREBASE_* o Application Default Credentials.' });
     const snapshot = await db.collection('congregations').get();
@@ -59,7 +59,7 @@ router.get('/', requireIapAuth, async (req, res) => {
 });
 
 // GET /api/congregations/:id
-router.get('/:id', requireIapAuth, async (req, res) => {
+router.get('/:id', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const doc = await db.collection('congregations').doc(req.params.id as string).get();
@@ -79,7 +79,7 @@ router.get('/:id', requireIapAuth, async (req, res) => {
 });
 
 // POST /api/congregations
-router.post('/', requireIapAuth, async (req, res) => {
+router.post('/', requireOwner, async (req, res) => {
   try {
     if (!db || !adminAuth) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const { name, city, state, country, circuit, plan = 'basico', isActive = true } = req.body;
@@ -182,7 +182,7 @@ router.post('/', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/congregations/:id
-router.patch('/:id', requireIapAuth, async (req, res) => {
+router.patch('/:id', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const { name, city, state, country, circuit, plan } = req.body;
@@ -220,7 +220,7 @@ router.patch('/:id', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/congregations/:id/status
-router.patch('/:id/status', requireIapAuth, async (req, res) => {
+router.patch('/:id/status', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const { isActive, reason } = req.body;
@@ -309,7 +309,7 @@ router.get('/:id/access-check', async (req, res) => {
 
 
 // PATCH /api/congregations/:id/leadership
-router.patch('/:id/leadership', requireIapAuth, async (req, res) => {
+router.patch('/:id/leadership', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const { secretaryUserId, coordinatorUserId } = req.body;
@@ -351,7 +351,7 @@ router.patch('/:id/leadership', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/congregations/:id/billing
-router.patch('/:id/billing', requireIapAuth, async (req, res) => {
+router.patch('/:id/billing', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     
@@ -402,7 +402,7 @@ router.patch('/:id/billing', requireIapAuth, async (req, res) => {
 });
 
 // GET /api/congregations/:id/export  — Exportar datos completos a Excel
-router.get('/:id/export', requireIapAuth, async (req, res) => {
+router.get('/:id/export', requireOwner, async (req, res) => {
   if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
   const congregationId = req.params.id as string;
@@ -645,7 +645,7 @@ async function deleteCollectionRecursive(
 }
 
 // DELETE /api/congregations/:id  — Eliminación total en cascada
-router.delete('/:id', requireIapAuth, async (req, res) => {
+router.delete('/:id', requireOwner, async (req, res) => {
   if (!db || !adminAuth) {
     return res.status(500).json({ error: 'Firebase Admin no configurado.' });
   }
@@ -740,7 +740,7 @@ router.delete('/:id', requireIapAuth, async (req, res) => {
     // 10. Finalmente eliminar el documento raíz de la congregación
     await congRef.delete();
 
-    console.log(
+    console.warn(
       `✅ Congregación "${congName}" (${congregationId}) eliminada completamente. Resumen:`,
       summary
     );

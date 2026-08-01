@@ -1,76 +1,161 @@
 # OMP Admin Portal
 
-Portal administrativo para el proyecto OMP. Esta herramienta web permite la gestión global de congregaciones (crear, editar, activar, desactivar y asignar liderazgo) asegurando de manera estricta los permisos de acceso y el flujo de los datos.
+Panel administrativo full-stack de OMP. El frontend usa React, TypeScript y Vite;
+el backend usa Express y Firebase Admin SDK. La imagen de producción se despliega
+en Cloud Run mediante el `Dockerfile` del proyecto.
 
-## Arquitectura
+## Requisitos
 
-Esta aplicación ha sido refactorizada para utilizar una arquitectura **Full-Stack** segura:
-- **Frontend**: React + TypeScript + Vite. Consume una API REST interna, sin acceso directo a Firebase desde el navegador.
-- **Backend**: Node.js + Express. Sirve tanto la API (`/api/*`) como los archivos estáticos de React. Interactúa con Firestore mediante **Firebase Admin SDK**, por lo cual bypassa las reglas de seguridad normales garantizando máximo privilegio en el portal.
-- **Seguridad y Autenticación**: El acceso al portal **no depende de Firebase Auth ni de roles en Firestore**. Se basa exclusivamente en **Google Cloud Identity-Aware Proxy (IAP)**. Solo los usuarios autorizados explícitamente en el proyecto de Google Cloud con el rol de IAP tienen acceso a la red, y el backend verifica criptográficamente que cada petición proviene de IAP.
+- Node.js 22.22 o posterior.
+- npm.
+- Un proyecto de Firebase configurado.
+- Para producción, una cuenta de servicio de Cloud Run con acceso a Firestore y
+  Firebase Authentication.
 
-## Configuración y Desarrollo Local
+## Variables de entorno
 
-1. Instalar dependencias:
-   ```bash
-   npm install
-   ```
+Copia `.env.example` como `.env.local`. Este archivo es local y está ignorado por
+Git.
 
-2. Configurar variables de entorno:
-   Renombra `.env.example` a `.env.local` y asegúrate de tener tu correo definido como "dueño" para by-passear la validación IAP localmente:
-   ```env
-   VITE_OWNER_EMAIL=tu_correo@gmail.com
-   ```
-   Para Firebase Admin, configura en `.env.local` las variables `FIREBASE_PROJECT_ID`,
-   `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY` usando una clave nueva. La clave
-   privada debe conservar sus saltos de línea como `\\n`, tal como se muestra en
-   `.env.example`. Las demás propiedades de la cuenta de servicio también tienen
-   su variable `FIREBASE_*` correspondiente en la plantilla.
+```powershell
+Copy-Item .env.example .env.local
+```
 
-   Como alternativa, el backend admite Application Default Credentials
-   (`GOOGLE_APPLICATION_CREDENTIALS`) cuando no se define ninguna credencial
-   mediante variables `FIREBASE_*`.
+Variables del frontend:
 
-3. Ejecutar en desarrollo:
-   ```bash
-   npm run dev
-   ```
-   Esto levantará el backend (Express) en el puerto `3000` y el frontend (Vite) en el puerto `5174`, con un proxy para redirigir `/api` al backend.
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
 
-## Construcción y Producción Local
+Variables del servidor:
 
-1. Compilar frontend y verificar tipos:
-   ```bash
-   npm run build
-   ```
+- `PORT`: puerto de Express; por defecto `3000`.
+- `OWNER_EMAILS`: lista de correos (separados por comas) autorizados a entrar
+  al panel. Es la única fuente de autorización real. Si está vacía o ausente,
+  el servidor rechaza todas las solicitudes (falla cerrado) — nunca la dejes
+  sin definir en Cloud Run.
+- `ALLOWED_ORIGIN`: origen exacto permitido por CORS para las rutas
+  protegidas. En Cloud Run, con el mismo servicio sirviendo frontend y API,
+  puede quedar vacío (las llamadas son same-origin). `GET
+  /api/congregations/:id/access-check` es la única ruta pública y no depende
+  de esta variable, porque la consume la app móvil desde otro origen.
+- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY`:
+  credenciales explícitas opcionales para Firebase Admin. La clave privada debe
+  representar sus saltos de línea mediante `\n`.
+- El resto de las variables `FIREBASE_*` de `.env.example` representa los campos
+  restantes de una cuenta de servicio.
 
-2. Iniciar servidor de producción (sirve el frontend compilado en `dist` y expone `/api`):
-   ```bash
-   npm run start
-   ```
+No guardes claves privadas ni archivos `serviceAccount*.json` en el repositorio.
+En Cloud Run se recomienda usar Application Default Credentials mediante la
+identidad del servicio, sin variables de clave privada.
 
-## Despliegue en Cloud Run y Seguridad IAP
+## Desarrollo local
 
-La aplicación está diseñada para ser desplegada como un contenedor en Google Cloud Run protegido por un Balanceador de Cargas (HTTPS Load Balancer) y Google Cloud IAP.
+Instala las dependencias:
 
-1. **Deploy a Cloud Run**:
-   ```bash
-   gcloud run deploy omp-admin-portal \
-     --source . \
-     --region us-central1 \
-     --allow-unauthenticated
-   ```
+```bash
+npm ci
+```
 
-2. **Asegurar con IAP**:
-   - **Nota**: Aunque Cloud Run se configure con `--allow-unauthenticated`, el verdadero muro de seguridad será Identity-Aware Proxy.
-   - Crea un **HTTPS Load Balancer** global y dirige el tráfico hacia tu servicio Cloud Run.
-   - Ve a `Seguridad > Identity-Aware Proxy` en Google Cloud Console.
-   - Activa IAP en el recurso de Backend Service vinculado al Load Balancer.
-   - Configura la pantalla de consentimiento OAuth si se te solicita.
+Inicia frontend y backend:
 
-3. **Otorgar Permisos de Acceso (IAM)**:
-   - Los usuarios (incluyendo al propietario del proyecto) no tienen acceso automáticamente por estar en Firebase Console.
-   - Para dar acceso a un administrador a este portal, agrégalo desde Google Cloud IAM o la interfaz de IAP y otórgale el rol:
-     **`IAP-secured Web App User`** (`roles/iap.httpsResourceAccessor`).
+```bash
+npm run dev
+```
 
-Cualquier petición sin una aserción válida JWT (`X-Goog-Iap-Jwt-Assertion`) en los headers será rechazada por el backend con un error 401/403.
+- Frontend: `http://localhost:5174`
+- API: `http://localhost:3000/api`
+
+El servidor de Vite redirige las llamadas `/api` al backend local.
+
+## Validación
+
+```bash
+npm run validate
+npm run build
+```
+
+`validate` ejecuta la comprobación de TypeScript y ESLint. El workflow
+`.github/workflows/admin-web-validate.yml` ejecuta la misma validación en cada
+pull request que modifica `admin-web/`.
+
+## Producción local
+
+```bash
+npm run build
+npm run start
+```
+
+En producción, Express sirve la aplicación compilada desde `dist/` además de la
+API.
+
+## Autenticación
+
+El panel no usa Google Cloud IAP: la autenticación es Firebase Auth con
+Google Sign-In, restringida a una allowlist de propietarios (`OWNER_EMAILS`)
+más un custom claim (`superAdmin`) verificado en cada request por el
+middleware `requireOwner`. Un correo en la allowlist sin haber iniciado
+sesión con Google no sirve, y un claim sin estar en la allowlist tampoco: se
+requieren ambas condiciones. `GET /api/congregations/:id/access-check` sigue
+siendo la única ruta pública, para la app móvil.
+
+Configuración única en Firebase Console (no se puede automatizar):
+
+1. **Authentication → Sign-in method** → habilitar el proveedor **Google**.
+2. **Authentication → Settings → Authorized domains** → añadir el dominio de
+   Cloud Run del servicio (y `localhost` ya viene incluido para desarrollo).
+
+## Despliegue en Cloud Run
+
+Desde `admin-web/`:
+
+```bash
+gcloud run deploy omp-admin-portal \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars OWNER_EMAILS=propietario@example.com
+```
+
+`--allow-unauthenticated` es correcto aquí: la autorización real ocurre dentro
+de la aplicación (`requireOwner`), no en la capa de infraestructura. Define
+`OWNER_EMAILS` como variable de entorno del servicio — sin ella, el servidor
+rechaza toda la API con `500 OWNER_ALLOWLIST_MISSING`.
+
+La cuenta de servicio de Cloud Run debe contar, como mínimo, con los permisos
+equivalentes a `roles/datastore.user` y `roles/firebaseauth.admin`. Firebase Admin
+obtendrá las credenciales mediante ADC.
+
+## Recuperación de acceso
+
+El propietario del proyecto de GCP siempre puede recuperar el acceso sin
+depender de ningún secreto guardado:
+
+```bash
+gcloud auth application-default login
+npm run grant:owner -- tu-correo@gmail.com
+```
+
+Esto crea el usuario en Firebase Auth si no existe y le concede el custom
+claim `superAdmin`. Después, añade ese correo a `OWNER_EMAILS` en el entorno
+del servicio (si no estaba ya) y vuelve a iniciar sesión con Google en el
+panel — `requireOwner` fuerza un refresco de token la primera vez que detecta
+que falta el claim.
+
+Para revocar el acceso de una cuenta comprometida de inmediato:
+
+```ts
+await getAuth().revokeRefreshTokens(uid);
+```
+
+(el middleware verifica `checkRevoked: true` en cada request, así que las
+sesiones activas mueren de inmediato).
+
+## Seguridad de credenciales
+
+Una clave de cuenta de servicio que haya sido publicada debe revocarse, aunque el
+archivo se elimine después. Si llegó a Git remoto, también permanece en el
+historial hasta que este se limpie. No reutilices una clave expuesta.

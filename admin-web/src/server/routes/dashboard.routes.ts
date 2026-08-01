@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 import { db } from '../firebaseAdmin';
 
 const router = Router();
 
-router.get('/stats', requireIapAuth, async (req, res) => {
+router.get('/stats', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const [totalCongregations, activeCongregations, activeUsers, inactiveUsers, systemActiveUsers, systemInactiveUsers] = await Promise.all([

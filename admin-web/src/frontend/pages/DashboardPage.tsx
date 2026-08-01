@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { ErrorState } from '../components/ui/ErrorState';
 import { LoadingState } from '../components/ui/LoadingState';
+import { ERROR_MESSAGES } from '../constants/messages';
 import { getGlobalStats } from '../services/stats.service';
 import type { GlobalStats } from '../types/stats.types';
 import { getMaintenanceStatus, setMaintenanceMode } from '../services/system.service';
@@ -60,7 +61,7 @@ export function DashboardPage() {
       setStats(statsData);
       setMaintenance(maintenanceData);
     } catch (err: any) {
-      setError(err.message || 'Error cargando estadísticas.');
+      setError(err.message || ERROR_MESSAGES.loadStats);
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,6 @@ export function DashboardPage() {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maintenance.active, maintenance.expiresAt]);
 
   // ── Toggle mantenimiento ────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ export function DashboardPage() {
       setMaintenance(updated);
       setStats(updatedStats);
     } catch (err: any) {
-      setMaintenanceError(err.message || 'Error gestionando mantenimiento.');
+      setMaintenanceError(err.message || ERROR_MESSAGES.updateMaintenance);
     } finally {
       setMaintenanceLoading(false);
     }

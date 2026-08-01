@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 import { db, adminAuth } from '../firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 
 const router = Router({ mergeParams: true });
 
 // GET /api/congregations/:id/users
-router.get('/', requireIapAuth, async (req, res) => {
+router.get('/', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
     const congregationId = req.params.id as string;
@@ -63,7 +63,7 @@ router.get('/', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/congregations/:id/users/:userId
-router.patch('/:userId', requireIapAuth, async (req, res) => {
+router.patch('/:userId', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -154,7 +154,7 @@ router.patch('/:userId', requireIapAuth, async (req, res) => {
 });
 
 // PATCH /api/congregations/:id/users/:userId/password
-router.patch('/:userId/password', requireIapAuth, async (req, res) => {
+router.patch('/:userId/password', requireOwner, async (req, res) => {
   try {
     if (!db || !adminAuth) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -206,7 +206,7 @@ router.patch('/:userId/password', requireIapAuth, async (req, res) => {
 });
 
 // DELETE /api/congregations/:id/users/:userId
-router.delete('/:userId', requireIapAuth, async (req, res) => {
+router.delete('/:userId', requireOwner, async (req, res) => {
   try {
     if (!db || !adminAuth) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 

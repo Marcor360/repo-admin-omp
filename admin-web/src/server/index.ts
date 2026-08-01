@@ -16,7 +16,25 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+const allowedOrigin = process.env.ALLOWED_ORIGIN;
+const publicAccessCheckPattern = /^\/api\/congregations\/[^/]+\/access-check$/;
+
+app.use(
+  cors((req, callback) => {
+    // /access-check no lleva autenticación: la consume la app móvil, que puede
+    // correr en un origen distinto al del panel. El resto de la API sí se
+    // restringe a ALLOWED_ORIGIN.
+    if (publicAccessCheckPattern.test(req.url ?? '')) {
+      callback(null, { origin: true, credentials: false, methods: ['GET'] });
+      return;
+    }
+    callback(null, {
+      origin: allowedOrigin || false,
+      credentials: false,
+      methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    });
+  }),
+);
 app.use(express.json());
 
 app.use('/api/me', meRoutes);
@@ -33,6 +51,4 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT);

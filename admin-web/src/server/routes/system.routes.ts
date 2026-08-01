@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
-import { requireIapAuth } from '../middleware/requireIapAuth';
+import { requireOwner } from '../middleware/requireOwner';
 import { db } from '../firebaseAdmin';
 
 const router = Router();
@@ -64,7 +64,7 @@ export async function checkAndAutoDeactivate(firestoreDb: Firestore): Promise<bo
 
     // Venció — desactivar automáticamente
     await performDeactivateMaintenance(firestoreDb, 'sistema@omp.com (automático)');
-    console.log('🔓 Mantenimiento del sistema desactivado automáticamente por vencimiento (5 h).');
+    console.warn('Mantenimiento del sistema desactivado automáticamente por vencimiento (5 h).');
     return true;
   } catch (err) {
     console.error('Error en checkAndAutoDeactivate:', err);
@@ -80,7 +80,7 @@ setInterval(async () => {
 // ─── Rutas ────────────────────────────────────────────────────────────────────
 
 // GET /api/system/maintenance — obtener estado del mantenimiento
-router.get('/maintenance', requireIapAuth, async (req, res) => {
+router.get('/maintenance', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -106,7 +106,7 @@ router.get('/maintenance', requireIapAuth, async (req, res) => {
 });
 
 // POST /api/system/maintenance — activar o desactivar mantenimiento global
-router.post('/maintenance', requireIapAuth, async (req, res) => {
+router.post('/maintenance', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
