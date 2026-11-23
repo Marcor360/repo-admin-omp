@@ -35,10 +35,10 @@ export function DeleteCongregationDialog({
   const totalUsers = (congregation.activeUsersCount ?? 0) + (congregation.inactiveUsersCount ?? 0);
   const nameMatches = inputName.trim() === congregation.name.trim();
 
-  useEscapeKey(onCancel);
+  useEscapeKey(onCancel, !loading);
 
   return (
-    <div className="credentials-modal-overlay" role="presentation" onClick={onCancel}>
+    <div className="credentials-modal-overlay" role="presentation" onClick={loading ? undefined : onCancel}>
       <div
         className="delete-confirm-modal"
         role="dialog"
@@ -78,9 +78,8 @@ export function DeleteCongregationDialog({
 
           {/* Aviso Excel */}
           <div className="delete-confirm-excel-notice">
-            📥 <strong>Se descargará automáticamente un respaldo Excel</strong> con todos
-            los datos de la congregación (información general + usuarios) antes de eliminar.
-            Guárdalo en un lugar seguro.
+            Se preparará un Excel con datos generales y usuarios antes de solicitar el borrado.
+            El archivo excluye reuniones e informes. Descárgalo por separado si necesitas verificarlo antes de confirmar.
           </div>
 
           {/* Campo de confirmación por nombre */}

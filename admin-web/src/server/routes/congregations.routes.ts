@@ -8,60 +8,64 @@ import { BILLING_PLANS, type BillingPlanKey, isBillingPlanKey, PLAN_LABELS, PLAN
 import { resolvePlanKey } from '../utils/planLegacy';
 import { parseOrRespond } from '../utils/validate';
 import { congregationIdParamSchema, activityQuerySchema, lifecycleBodySchema, deleteCongregationBodySchema } from '../schemas/congregationDetail.schemas';
-import { TtlCache } from '../utils/ttlCache';
+import { congregationsCache, invalidateAdminReadsAfterMutation, overviewCache } from '../utils/adminReadCaches';
 import { getCurrentMonthId } from '../utils/monthId';
 import { writeAuditLog } from '../utils/auditLog';
 import { type LifecycleStatus, deriveLifecycleStatus, isTransitionAllowed } from '../domain/lifecycle';
 import { getStripe } from '../utils/stripeClient';
 
 const router = Router();
+router.use(invalidateAdminReadsAfterMutation);
 
 // GET /api/congregations
 router.get('/', requireOwner, async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado. Revisa las variables FIREBASE_* o Application Default Credentials.' });
-    const snapshot = await db.collection('congregations').get();
-    const congregationsPromises = snapshot.docs.map(async doc => {
-      const id = doc.id;
-      const data = doc.data();
+    const database = db;
+    const congregations = await congregationsCache.getOrLoad('list', async () => {
+      const snapshot = await database.collection('congregations').get();
+      const congregationsPromises = snapshot.docs.map(async doc => {
+        const id = doc.id;
+        const data = doc.data();
       
-      const secretaryId = data.leadership?.secretaryUserId;
-      const coordinatorId = data.leadership?.coordinatorUserId;
+        const secretaryId = data.leadership?.secretaryUserId;
+        const coordinatorId = data.leadership?.coordinatorUserId;
 
-      const [
-        totalActiveSnap,
-        systemActiveSnap,
-        totalInactiveSnap,
-        systemInactiveSnap,
-        secretaryDoc,
-        coordinatorDoc
-      ] = await Promise.all([
-        db!.collection('users').where('congregationId', '==', id).where('isActive', '==', true).count().get(),
-        db!.collection('users').where('congregationId', '==', id).where('isActive', '==', true).where('isSystemUser', '==', true).count().get(),
-        db!.collection('users').where('congregationId', '==', id).where('isActive', '==', false).count().get(),
-        db!.collection('users').where('congregationId', '==', id).where('isActive', '==', false).where('isSystemUser', '==', true).count().get(),
-        secretaryId ? db!.collection('users').doc(secretaryId).get() : Promise.resolve(null),
-        coordinatorId ? db!.collection('users').doc(coordinatorId).get() : Promise.resolve(null)
-      ]);
+        const [
+          totalActiveSnap,
+          systemActiveSnap,
+          totalInactiveSnap,
+          systemInactiveSnap,
+          secretaryDoc,
+          coordinatorDoc
+        ] = await Promise.all([
+          db!.collection('users').where('congregationId', '==', id).where('isActive', '==', true).count().get(),
+          db!.collection('users').where('congregationId', '==', id).where('isActive', '==', true).where('isSystemUser', '==', true).count().get(),
+          db!.collection('users').where('congregationId', '==', id).where('isActive', '==', false).count().get(),
+          db!.collection('users').where('congregationId', '==', id).where('isActive', '==', false).where('isSystemUser', '==', true).count().get(),
+          secretaryId ? db!.collection('users').doc(secretaryId).get() : Promise.resolve(null),
+          coordinatorId ? db!.collection('users').doc(coordinatorId).get() : Promise.resolve(null)
+        ]);
 
-      const secData = secretaryDoc?.data();
-      const coordData = coordinatorDoc?.data();
+        const secData = secretaryDoc?.data();
+        const coordData = coordinatorDoc?.data();
 
-      return {
-        id,
-        ...data,
-        isActive: data.isActive !== undefined ? data.isActive : (data.active !== undefined ? data.active : true),
-        nameKey: data.nameKey || data.code || '',
-        planKey: resolvePlanKey(data),
-        lifecycleStatus: deriveLifecycleStatus(data),
-        activeUsersCount: totalActiveSnap.data().count - systemActiveSnap.data().count,
-        inactiveUsersCount: totalInactiveSnap.data().count - systemInactiveSnap.data().count,
-        secretaryName: secData ? (secData.displayName || secData.name || secData.email || 'Sin nombre') : 'Sin asignar',
-        coordinatorName: coordData ? (coordData.displayName || coordData.name || coordData.email || 'Sin nombre') : 'Sin asignar'
-      };
+        return {
+          id,
+          ...data,
+          isActive: data.isActive !== undefined ? data.isActive : (data.active !== undefined ? data.active : true),
+          nameKey: data.nameKey || data.code || '',
+          planKey: resolvePlanKey(data),
+          lifecycleStatus: deriveLifecycleStatus(data),
+          activeUsersCount: totalActiveSnap.data().count - systemActiveSnap.data().count,
+          inactiveUsersCount: totalInactiveSnap.data().count - systemInactiveSnap.data().count,
+          secretaryName: secData ? (secData.displayName || secData.name || secData.email || 'Sin nombre') : 'Sin asignar',
+          coordinatorName: coordData ? (coordData.displayName || coordData.name || coordData.email || 'Sin nombre') : 'Sin asignar'
+        };
+      });
+
+      return Promise.all(congregationsPromises);
     });
-
-    const congregations = await Promise.all(congregationsPromises);
     res.json(congregations);
   } catch (error) {
     console.error('Error fetching congregations:', error);
@@ -554,8 +558,6 @@ router.get('/:id/activity', requireOwner, async (req, res) => {
   }
 });
 
-const overviewCache = new TtlCache<Record<string, unknown>>(30_000);
-
 // GET /api/congregations/:id/overview — Agregados en una sola respuesta.
 // Reusa dashboardSummary/{cid} cuando existe; calcula solo lo que falta.
 // Cacheado 30s por congregación (un solo super admin no justifica más).
@@ -570,113 +572,117 @@ router.get('/:id/overview', requireOwner, async (req, res) => {
     return;
   }
 
+  const database = db;
+  const auth = adminAuth;
   try {
-    const congDoc = await db.collection('congregations').doc(params.id).get();
-    if (!congDoc.exists) return res.status(404).json({ error: 'Congregación no encontrada.' });
-    const cong = congDoc.data()!;
+    const overview = await overviewCache.getOrLoad(params.id, async () => {
+      const congDoc = await database.collection('congregations').doc(params.id).get();
+      if (!congDoc.exists) return null;
+      const cong = congDoc.data()!;
 
-    const monthId = getCurrentMonthId();
-    // Sin `isSystemUser != true`: Firestore exige un índice compuesto nuevo
-    // para esa combinación de filtros. En vez de eso, contamos por rol con
-    // igualdades simples (ya indexadas, mismo patrón que GET /) y restamos
-    // el usuario admin del sistema aparte — siempre se crea con role:'admin'.
-    const usersActiveByRole = (role: string) =>
-      db!.collection('users')
-        .where('congregationId', '==', params.id)
-        .where('isActive', '==', true)
-        .where('role', '==', role)
-        .count().get();
+      const monthId = getCurrentMonthId();
+      // Sin `isSystemUser != true`: Firestore exige un índice compuesto nuevo
+      // para esa combinación de filtros. En vez de eso, contamos por rol con
+      // igualdades simples (ya indexadas, mismo patrón que GET /) y restamos
+      // el usuario admin del sistema aparte — siempre se crea con role:'admin'.
+      const usersActiveByRole = (role: string) =>
+        db!.collection('users')
+          .where('congregationId', '==', params.id)
+          .where('isActive', '==', true)
+          .where('role', '==', role)
+          .count().get();
 
-    const [
-      dashboardSummaryDoc,
-      adminCountSnap,
-      supervisorCountSnap,
-      userCountSnap,
-      systemActiveCountSnap,
-      activeUsersSelectSnap,
-      monthlyTerritorySnap,
-      reportsCountSnap,
-      meetingsThisMonthSnap,
-    ] = await Promise.all([
-      db.collection('dashboardSummary').doc(params.id).get(),
-      usersActiveByRole('admin'),
-      usersActiveByRole('supervisor'),
-      usersActiveByRole('user'),
-      db.collection('users')
-        .where('congregationId', '==', params.id)
-        .where('isActive', '==', true)
-        .where('isSystemUser', '==', true)
-        .count().get(),
-      db.collection('users')
-        .where('congregationId', '==', params.id)
-        .where('isActive', '==', true)
-        .select('uid', 'isSystemUser')
-        .get(),
-      db.collection('congregations').doc(params.id).collection('monthlyTerritoryAssignments').doc(monthId).get(),
-      db.collection('congregations').doc(params.id).collection('preachingReports').doc(monthId).collection('submissions').count().get(),
-      db.collection('congregations').doc(params.id).collection('meetings')
-        .where('startDate', '>=', new Date(new Date().getFullYear(), new Date().getMonth(), 1))
-        .count().get(),
-    ]);
+      const [
+        dashboardSummaryDoc,
+        adminCountSnap,
+        supervisorCountSnap,
+        userCountSnap,
+        systemActiveCountSnap,
+        activeUsersSelectSnap,
+        monthlyTerritorySnap,
+        reportsCountSnap,
+        meetingsThisMonthSnap,
+      ] = await Promise.all([
+        database.collection('dashboardSummary').doc(params.id).get(),
+        usersActiveByRole('admin'),
+        usersActiveByRole('supervisor'),
+        usersActiveByRole('user'),
+        database.collection('users')
+          .where('congregationId', '==', params.id)
+          .where('isActive', '==', true)
+          .where('isSystemUser', '==', true)
+          .count().get(),
+        database.collection('users')
+          .where('congregationId', '==', params.id)
+          .where('isActive', '==', true)
+          .select('uid', 'isSystemUser')
+          .get(),
+        database.collection('congregations').doc(params.id).collection('monthlyTerritoryAssignments').doc(monthId).get(),
+        database.collection('congregations').doc(params.id).collection('preachingReports').doc(monthId).collection('submissions').count().get(),
+        database.collection('congregations').doc(params.id).collection('meetings')
+          .where('startDate', '>=', new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+          .count().get(),
+      ]);
 
-    const usersByRole = {
-      // Resta el/los admin(es) de sistema: siempre tienen role:'admin', nunca supervisor/user.
-      admin: Math.max(0, adminCountSnap.data().count - systemActiveCountSnap.data().count),
-      supervisor: supervisorCountSnap.data().count,
-      user: userCountSnap.data().count,
-    };
-    const activeUsersCount = usersByRole.admin + usersByRole.supervisor + usersByRole.user;
+      const usersByRole = {
+        // Resta el/los admin(es) de sistema: siempre tienen role:'admin', nunca supervisor/user.
+        admin: Math.max(0, adminCountSnap.data().count - systemActiveCountSnap.data().count),
+        supervisor: supervisorCountSnap.data().count,
+        user: userCountSnap.data().count,
+      };
+      const activeUsersCount = usersByRole.admin + usersByRole.supervisor + usersByRole.user;
 
-    // Sesión reciente (30 días) resuelta vía Firebase Auth — no hay campo
-    // equivalente en Firestore en el principal.
-    const uids = activeUsersSelectSnap.docs
-      .filter((doc) => doc.data().isSystemUser !== true)
-      .map((doc) => String(doc.data().uid ?? doc.id))
-      .filter(Boolean);
-    let usersWithRecentSession = 0;
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    for (let i = 0; i < uids.length; i += 100) {
-      const chunk = uids.slice(i, i + 100);
-      const result = await adminAuth.getUsers(chunk.map((uid) => ({ uid })));
-      for (const userRecord of result.users) {
-        const lastSignIn = userRecord.metadata.lastSignInTime ? new Date(userRecord.metadata.lastSignInTime).getTime() : 0;
-        if (lastSignIn >= thirtyDaysAgo) usersWithRecentSession += 1;
+      // Sesión reciente (30 días) resuelta vía Firebase Auth — no hay campo
+      // equivalente en Firestore en el principal.
+      const uids = activeUsersSelectSnap.docs
+        .filter((doc) => doc.data().isSystemUser !== true)
+        .map((doc) => String(doc.data().uid ?? doc.id))
+        .filter(Boolean);
+      let usersWithRecentSession = 0;
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      for (let i = 0; i < uids.length; i += 100) {
+        const chunk = uids.slice(i, i + 100);
+        const result = await auth.getUsers(chunk.map((uid) => ({ uid })));
+        for (const userRecord of result.users) {
+          const lastSignIn = userRecord.metadata.lastSignInTime ? new Date(userRecord.metadata.lastSignInTime).getTime() : 0;
+          if (lastSignIn >= thirtyDaysAgo) usersWithRecentSession += 1;
+        }
       }
-    }
 
-    const territoriesAssigned = monthlyTerritorySnap.exists
-      ? ((monthlyTerritorySnap.data()?.assignments as { territoryIds?: string[] }[] | undefined) ?? [])
-          .reduce((sum, target) => sum + (target.territoryIds?.length ?? 0), 0)
-      : 0;
+      const territoriesAssigned = monthlyTerritorySnap.exists
+        ? ((monthlyTerritorySnap.data()?.assignments as { territoryIds?: string[] }[] | undefined) ?? [])
+            .reduce((sum, target) => sum + (target.territoryIds?.length ?? 0), 0)
+        : 0;
 
-    const planKey = resolvePlanKey(cong);
-    const limit = PLAN_USER_LIMITS[planKey];
+      const planKey = resolvePlanKey(cong);
+      const limit = PLAN_USER_LIMITS[planKey];
 
-    const overview = {
-      congregationId: params.id,
-      congregationName: cong.name ?? '',
-      plan: {
-        key: planKey,
-        label: PLAN_LABELS[planKey],
-        limit,
-        priceMxn: PLAN_PRICES_MXN[planKey],
-        activeUsersCount,
-        occupancyPct: Math.min(100, Math.round((activeUsersCount / limit) * 100)),
-      },
-      billing: {
-        billingMode: cong.billing?.billingMode ?? 'disabled',
-        status: cong.billing?.status ?? 'none',
-      },
-      usersByRole,
-      usersWithRecentSession,
-      meetingsThisMonth: meetingsThisMonthSnap.data().count,
-      territoriesAssigned,
-      reportsThisMonth: reportsCountSnap.data().count,
-      dashboardSummary: dashboardSummaryDoc.exists ? dashboardSummaryDoc.data() : null,
-      generatedAt: Date.now(),
-    };
+      return {
+        congregationId: params.id,
+        congregationName: cong.name ?? '',
+        plan: {
+          key: planKey,
+          label: PLAN_LABELS[planKey],
+          limit,
+          priceMxn: PLAN_PRICES_MXN[planKey],
+          activeUsersCount,
+          occupancyPct: Math.min(100, Math.round((activeUsersCount / limit) * 100)),
+        },
+        billing: {
+          billingMode: cong.billing?.billingMode ?? 'disabled',
+          status: cong.billing?.status ?? 'none',
+        },
+        usersByRole,
+        usersWithRecentSession,
+        meetingsThisMonth: meetingsThisMonthSnap.data().count,
+        territoriesAssigned,
+        reportsThisMonth: reportsCountSnap.data().count,
+        dashboardSummary: dashboardSummaryDoc.exists ? dashboardSummaryDoc.data() : null,
+        generatedAt: Date.now(),
+      };
 
-    overviewCache.set(params.id, overview);
+    });
+    if (!overview) return res.status(404).json({ error: 'Congregación no encontrada.' });
     res.json({ ...overview, fromCache: false });
   } catch (error) {
     console.error('Error obteniendo overview:', error);
@@ -743,7 +749,7 @@ router.patch('/:id/billing', requireOwner, async (req, res) => {
   }
 });
 
-// GET /api/congregations/:id/export  — Exportar datos completos a Excel
+// GET /api/congregations/:id/export  — Exportar datos generales y usuarios a Excel
 router.get('/:id/export', requireOwner, async (req, res) => {
   if (!db) return res.status(500).json({ error: 'Firebase Admin no configurado.' });
 
@@ -909,16 +915,18 @@ router.get('/:id/export', requireOwner, async (req, res) => {
     // Freeze header row in both sheets
     sheetCong.views = [{ state: 'frozen', ySplit: 1 }];
     sheetUsers.views = [{ state: 'frozen', ySplit: 1 }];
+    sheetUsers.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheetUsers.columnCount } };
 
     // 4. Enviar como descarga
     const safeName = (cong.name || congregationId).replace(/[^a-z0-9áéíóúüñ_\- ]/gi, '_');
     const fileName = `congregacion_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
+    const workbook = await wb.xlsx.writeBuffer();
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
 
-    await wb.xlsx.write(res);
-    res.end();
+    res.send(Buffer.from(workbook));
   } catch (error: any) {
     console.error('Error exportando congregación:', error);
     res.status(500).json({ error: error.message || 'Error exportando congregación.' });

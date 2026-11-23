@@ -127,7 +127,7 @@ export async function deleteCongregation(
 }
 
 /**
- * Descarga un archivo Excel con todos los datos de la congregación:
+ * Descarga un Excel de datos generales y usuarios:
  * hoja "Congregación" (datos generales) y hoja "Usuarios" (todos los usuarios).
  */
 export async function exportCongregationExcel(id: string, name: string): Promise<void> {
@@ -136,13 +136,18 @@ export async function exportCongregationExcel(id: string, name: string): Promise
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || ERROR_MESSAGES.exportData);
   }
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+    throw new Error(ERROR_MESSAGES.exportData);
+  }
   const blob = await res.blob();
+  if (!blob.size) throw new Error(ERROR_MESSAGES.exportData);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `congregacion_${name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.download = `congregacion_${name.replace(/[^\p{L}\p{N}-]+/gu, '_').slice(0, 80)}_${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }

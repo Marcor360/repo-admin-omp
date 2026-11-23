@@ -1,3 +1,4 @@
+import { normalizeText } from '../utils/normalizeText';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { CongregationFormModal } from '../components/congregations/CongregationFormModal';
@@ -6,6 +7,8 @@ import { CongregationTable } from '../components/congregations/CongregationTable
 import { DeleteCongregationDialog } from '../components/congregations/DeleteCongregationDialog';
 import { DeactivateReasonDialog } from '../components/congregations/DeactivateReasonDialog';
 import type { DeactivationReason } from '../components/congregations/DeactivateReasonDialog';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { ErrorState } from '../components/ui/ErrorState';
@@ -43,10 +46,16 @@ export function CongregationsPage() {
   const [billingTarget, setBillingTarget] = useState<CongregationWithStats | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
+  const term = normalizeText(search);
 
   const sortedCongregations = useMemo(
-    () => [...congregations].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es')),
-    [congregations],
+    () => congregations.filter((item) => (
+      (status === 'all' || item.isActive === (status === 'active')) &&
+      (!term || normalizeText([item.name, item.nameKey, item.domain].join(' ')).includes(term))
+    )).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es')),
+    [congregations, status, term],
   );
 
   async function loadCongregations() {
@@ -173,13 +182,16 @@ export function CongregationsPage() {
     setNotice('');
     try {
       await exportCongregationExcel(deleteTarget.id, deleteTarget.name);
-    } catch (_) {
-      // Continuar con la eliminación aunque falle la exportación
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ERROR_MESSAGES.exportData);
+      setDeleteTarget(null);
+      setDeleting(false);
+      return;
     }
     try {
       const result = await deleteCongregation(deleteTarget.id, confirmName);
       setDeleteTarget(null);
-      setNotice(`Congregación "${result.congregationName}" eliminada. Se descargó el respaldo Excel con todos los datos. Usuarios eliminados: ${result.summary.users ?? 0}.`);
+      setNotice(`Congregación "${result.congregationName}" eliminada. Se preparó el Excel de datos generales y usuarios. Usuarios eliminados: ${result.summary.users ?? 0}.`);
       await loadCongregations();
     } catch (err: any) {
       setError(err.message || ERROR_MESSAGES.deleteCongregation);
@@ -204,7 +216,7 @@ export function CongregationsPage() {
     }
   }
 
-  if (loading) return <LoadingState label="Cargando congregaciones..." />;
+  if (loading && congregations.length === 0) return <LoadingState label="Cargando congregaciones..." />;
 
   return (
     <section className="page-stack">
@@ -218,7 +230,7 @@ export function CongregationsPage() {
         </Button>
       </div>
 
-      {notice ? <div className="notice success">{notice}</div> : null}
+      {notice ? <div className="notice success" role="status">{notice}</div> : null}
       {error ? <ErrorState message={error} onRetry={loadCongregations} /> : null}
 
       {firstAdminCredentials ? (
@@ -254,7 +266,26 @@ export function CongregationsPage() {
         </div>
       ) : null}
 
-      <CongregationTable
+      <div className="page-header">
+        <Input label="Buscar congregación" value={search} onChange={(event) => setSearch(event.target.value)}
+          placeholder="Nombre, clave o dominio" />
+        <Select label="Estado" value={status} onChange={(event) => setStatus(event.target.value)}
+          options={[
+            { label: 'Todas', value: 'all' }, { label: 'Activas', value: 'active' },
+            { label: 'Inactivas', value: 'inactive' },
+          ]} />
+        <span role="status">{sortedCongregations.length} de {congregations.length}</span>
+        <Button type="button" disabled={loading} onClick={() => void loadCongregations()}>
+          {loading ? 'Actualizando…' : 'Actualizar'}
+        </Button>
+      </div>
+
+      {congregations.length > 0 && sortedCongregations.length === 0 ? (
+        <div className="notice" role="status">
+          <p>No hay congregaciones que coincidan con la búsqueda.</p>
+          <Button type="button" onClick={() => { setSearch(''); setStatus('all'); }}>Limpiar filtros</Button>
+        </div>
+      ) : <CongregationTable
         congregations={sortedCongregations}
         onEdit={openEditModal}
         onToggleStatus={handleToggleStatusClick}
@@ -262,7 +293,7 @@ export function CongregationsPage() {
         onExport={handleExport}
         onBilling={setBillingTarget}
         exporting={exporting}
-      />
+      />}
 
       <CongregationFormModal
         isOpen={isFormOpen}

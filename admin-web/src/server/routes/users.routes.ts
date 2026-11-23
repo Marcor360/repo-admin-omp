@@ -1,3 +1,4 @@
+import { invalidateAdminReadsAfterMutation } from '../utils/adminReadCaches';
 import { Router } from 'express';
 import { requireOwner } from '../middleware/requireOwner';
 import { db, adminAuth } from '../firebaseAdmin';
@@ -6,6 +7,7 @@ import { parseOrRespond } from '../utils/validate';
 import { congregationIdParamSchema, usersQuerySchema } from '../schemas/congregationDetail.schemas';
 
 const router = Router({ mergeParams: true });
+router.use(invalidateAdminReadsAfterMutation);
 
 // GET /api/congregations/:id/users — paginado con cursor (ver usersQuerySchema).
 router.get('/', requireOwner, async (req, res) => {
